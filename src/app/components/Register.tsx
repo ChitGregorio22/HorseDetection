@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import type { HorseRecord } from "../App";
+import { registerHorse as saveHorse } from "../lib/api";
 
 type CameraState = "idle" | "starting" | "ready" | "denied";
 
@@ -38,6 +39,7 @@ export function Register({ onRegistered, onViewDashboard }: RegisterProps) {
   const [registeredHorse, setRegisteredHorse] = useState<HorseRecord | null>(null);
   const [qrCode, setQrCode] = useState("");
   const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -117,21 +119,40 @@ export function Register({ onRegistered, onViewDashboard }: RegisterProps) {
       return;
     }
 
-    const registeredAt = new Date().toISOString();
-    const horse: HorseRecord = {
-      id: `HTM-${Date.now().toString(36).toUpperCase()}`,
-      name: name.trim(),
-      age: parsedAge,
-      normalTemperature: parsedTemperature,
-      currentTemperature: parsedTemperature,
-      registeredAt,
-      lastUpdated: registeredAt,
-      photo,
-    };
+    setSaving(true);
+    setFormError("");
+    let horse: HorseRecord;
+    try {
+      // Upload the photo to Supabase Storage and save the horse in the database
+      const saved = await saveHorse({
+        name: name.trim(),
+        age: parsedAge,
+        normal_temp: parsedTemperature,
+        photoDataUrl: photo,
+      });
+      horse = {
+        id: saved.id,
+        horseCode: saved.horse_code,
+        name: saved.name,
+        age: saved.age,
+        normalTemperature: Number(saved.normal_temp),
+        currentTemperature: null,
+        envTemperature: null,
+        status: "normal",
+        registeredAt: saved.registered_at,
+        lastUpdated: null,
+        photo,
+        openAlerts: 0,
+      };
+    } catch (error) {
+      setFormError(`Could not save to the database: ${(error as Error).message}`);
+      setSaving(false);
+      return;
+    }
 
     const qrPayload = JSON.stringify({
       system: "Horse Thermal Monitor",
-      horseId: horse.id,
+      horseId: horse.horseCode,
       horseName: horse.name,
       registeredAt: horse.registeredAt,
     });
@@ -149,6 +170,7 @@ export function Register({ onRegistered, onViewDashboard }: RegisterProps) {
     setRegisteredHorse(horse);
     setQrCode(generatedQr);
     setFormError("");
+    setSaving(false);
     onRegistered(horse);
   };
 
@@ -175,7 +197,7 @@ export function Register({ onRegistered, onViewDashboard }: RegisterProps) {
               </div>
             </div>
             <div className="rounded-lg bg-green-800/40 px-4 py-2 font-mono text-lg">
-              {registeredHorse.id}
+              {registeredHorse.horseCode}
             </div>
           </div>
 
@@ -429,14 +451,15 @@ export function Register({ onRegistered, onViewDashboard }: RegisterProps) {
 
             <button
               type="submit"
-              className="flex min-h-16 w-full items-center justify-center gap-3 rounded-xl bg-green-600 px-6 py-4 text-xl font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-200"
+              disabled={saving}
+              className="disabled:cursor-wait disabled:opacity-70 flex min-h-16 w-full items-center justify-center gap-3 rounded-xl bg-green-600 px-6 py-4 text-xl font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-200"
             >
               <QrCode className="h-7 w-7" />
-              Register & Generate QR
+              {saving ? "Saving…" : "Register & Generate QR"}
             </button>
 
             <p className="text-center text-sm leading-relaxed text-gray-500">
-              Horse details are stored on this device. The QR code contains the horse ID and registration record.
+              Horse details and photo are saved to the online database. The QR code contains the horse ID the thermal camera scans.
             </p>
           </div>
         </section>

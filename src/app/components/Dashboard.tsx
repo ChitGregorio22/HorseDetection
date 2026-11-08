@@ -2,43 +2,62 @@ import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, CloudSun, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from 'recharts';
 import type { HorseRecord } from '../App';
+import { classify, getRecentReadings, subscribeToChanges, type Reading, type Settings } from '../lib/api';
 
 interface DashboardProps {
   horse: HorseRecord | null;
+  settings: Settings;
   onRegister: () => void;
 }
 
-export function Dashboard({ horse, onRegister }: DashboardProps) {
-  const [envTemp, setEnvTemp] = useState(22.5);
-  const [recentData, setRecentData] = useState<{ time: string; temp: number }[]>([]);
+const formatTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
 
-  const currentTemp = horse?.currentTemperature ?? 0;
-  const normalTemp = horse?.normalTemperature ?? 37.2;
+export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
+  const [readings, setReadings] = useState<Reading[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Environment data refreshes on the same three-minute monitoring cycle.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const newEnvTemp = 20.0 + Math.random() * 5;
-      setEnvTemp(Number(newEnvTemp.toFixed(1)));
-    }, 3 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
+  // Load the latest readings from the database, then listen for new ones in real time.
   useEffect(() => {
     if (!horse) {
-      setRecentData([]);
+      setReadings([]);
       return;
     }
+    let cancelled = false;
+    setLoading(true);
+    getRecentReadings(horse.id, 7)
+      .then((rows) => !cancelled && setReadings(rows))
+      .catch(() => !cancelled && setReadings([]))
+      .finally(() => !cancelled && setLoading(false));
 
-    const updated = new Date(horse.lastUpdated);
-    const time = `${updated.getHours()}:${updated.getMinutes().toString().padStart(2, '0')}`;
-    setRecentData((previous) => {
-      const latest = previous[previous.length - 1];
-      if (latest?.time === time && latest.temp === horse.currentTemperature) return previous;
-      return [...previous.slice(-6), { time, temp: horse.currentTemperature }];
-    });
-  }, [horse?.id, horse?.currentTemperature, horse?.lastUpdated]);
+    const unsubscribe = subscribeToChanges('dashboard', ['temperature_readings'], (_table, row) => {
+      if (!row.id) return;
+      const reading: Reading = {
+        id: Number(row.id),
+        horse_id: String(row.horse_id),
+        body_temp: Number(row.body_temp),
+        env_temp: row.env_temp == null ? null : Number(row.env_temp),
+        status: row.status as Reading['status'],
+        recorded_at: String(row.recorded_at),
+      };
+      setReadings((previous) =>
+        previous.some((r) => r.id === reading.id) ? previous : [...previous.slice(-6), reading],
+      );
+    }, horse.id);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [horse?.id]);
+
+  const recentData = readings.map((r) => ({ time: formatTime(r.recorded_at), temp: r.body_temp }));
+  const latest = readings[readings.length - 1];
+  const currentTemp = latest?.body_temp ?? horse?.currentTemperature ?? 0;
+  const envTemp = latest?.env_temp ?? horse?.envTemperature ?? null;
+  const normalTemp = horse?.normalTemperature ?? 37.2;
 
   if (!horse) {
     return (
@@ -56,6 +75,21 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
           >
             Register a Horse
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loading && !latest && horse.currentTemperature == null) {
+    return (
+      <div className="p-6">
+        <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
+          <div className="mb-5 text-7xl">🌡️</div>
+          <h1 className="text-4xl">Waiting for {horse.name}'s first reading</h1>
+          <p className="mt-3 max-w-xl text-xl text-gray-600">
+            Scan {horse.name}'s QR tag with the thermal camera. The temperature will appear here automatically.
+          </p>
+          <p className="mt-4 rounded-lg bg-white px-4 py-2 font-mono text-xl text-green-800">{horse.horseCode}</p>
         </div>
       </div>
     );
@@ -91,8 +125,9 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
   const TrendIcon = getTrendIcon();
 
   const getStatus = (temp: number) => {
-    if (temp >= 38.0) return { text: 'FEVER', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-600' };
-    if (temp >= 37.5) return { text: 'WARNING', color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-600' };
+    const level = classify(temp, settings);
+    if (level === 'fever') return { text: 'FEVER', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-600' };
+    if (level === 'warning') return { text: 'WARNING', color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-600' };
     return { text: 'NORMAL', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-600' };
   };
 
@@ -111,7 +146,7 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
 
             <div className="space-y-2">
               <div className="flex items-baseline gap-4">
-                <span className="text-7xl tabular-nums">{currentTemp}°C</span>
+                <span className="text-7xl tabular-nums">{currentTemp.toFixed(1)}°C</span>
                 <span className={`${status.color} text-4xl px-6 py-2 rounded-lg ${status.bg} border-2 ${status.border}`}>
                   {status.text}
                 </span>
@@ -136,7 +171,7 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
               <CloudSun className="text-blue-600 w-10 h-10" />
               <h2 className="text-2xl">Environment</h2>
             </div>
-            <div className="text-6xl tabular-nums text-blue-600">{envTemp}°C</div>
+            <div className="text-6xl tabular-nums text-blue-600">{envTemp == null ? '—' : `${envTemp.toFixed(1)}°C`}</div>
             <div className="text-xl text-blue-700">Ambient Temperature</div>
           </div>
         </div>
@@ -168,7 +203,7 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
             <div className={`text-3xl tabular-nums ${tempDeviation > 0.5 ? 'text-red-600' : tempDeviation < -0.5 ? 'text-blue-600' : 'text-green-600'}`}>
               {tempDeviation > 0 ? '+' : ''}{tempDeviation.toFixed(1)}°C
             </div>
-            <div className="text-lg text-gray-600 mt-2">Normal: {normalTemp}°C</div>
+            <div className="text-lg text-gray-600 mt-2">Normal: {normalTemp.toFixed(1)}°C</div>
           </div>
 
           <div className="bg-teal-50 border-2 border-teal-600 rounded-xl p-4">
@@ -210,17 +245,17 @@ export function Dashboard({ horse, onRegister }: DashboardProps) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-green-50 border-2 border-green-600 rounded-xl p-6">
           <div className="text-green-600 text-xl mb-2">Normal Range</div>
-          <div className="text-3xl">Below 37.5°C</div>
+          <div className="text-3xl">Below {settings.warning_threshold.toFixed(1)}°C</div>
         </div>
 
         <div className="bg-yellow-50 border-2 border-yellow-600 rounded-xl p-6">
           <div className="text-yellow-600 text-xl mb-2">Warning Range</div>
-          <div className="text-3xl">37.5 - 38.0°C</div>
+          <div className="text-3xl">{settings.warning_threshold.toFixed(1)} - {settings.fever_threshold.toFixed(1)}°C</div>
         </div>
 
         <div className="bg-red-50 border-2 border-red-600 rounded-xl p-6">
           <div className="text-red-600 text-xl mb-2">Fever Range</div>
-          <div className="text-3xl">≥ 38.0°C</div>
+          <div className="text-3xl">≥ {settings.fever_threshold.toFixed(1)}°C</div>
         </div>
       </div>
     </div>
