@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Home, History, Bell, Users, ScanFace, Settings as SettingsIcon, LogOut, UserCog, Clock } from "lucide-react";
 import { Dashboard } from "./components/Dashboard";
@@ -11,6 +11,7 @@ import { Login } from "./components/Login";
 import { PiStatusBadge, useDeviceStatus } from "./components/PiStatus";
 import { Users as UsersView } from "./components/Users";
 import { FeverAlarm } from "./components/FeverAlarm";
+import { useLiveView } from "./components/useLiveView";
 import { permissionsFor, ROLE_LABELS } from "./lib/permissions";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import {
@@ -41,6 +42,14 @@ export default function App() {
   const can = permissionsFor(profile);
   const approved = Boolean(profile?.approved);
   const deviceStatus = useDeviceStatus(Boolean(session) && approved);
+  const live = useLiveView(Boolean(session) && approved);
+  const [followCamera, setFollowCamera] = useState(() => {
+    try {
+      return localStorage.getItem("followCamera") !== "off";
+    } catch {
+      return true;
+    }
+  });
 
   const selectedHorse = horses.find((horse) => horse.id === selectedHorseId) ?? null;
 
@@ -96,6 +105,33 @@ export default function App() {
     // New readings, alerts or horses → refresh the list instantly (real-time)
     return subscribeToChanges("app", ["temperature_readings", "alerts", "horses"], () => refreshHorses());
   }, [session, approved, refreshHorses, refreshSettings]);
+
+  // ---- Follow the camera: when the Pi identifies a horse, the Dashboard switches to it.
+  //      Picking another horse by hand sticks until the camera sees a different horse (or this one again).
+  const liveCode = live.main?.status === "identified" ? live.main.horse_code : null;
+  const followed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!liveCode) {
+      followed.current = null;
+      return;
+    }
+    if (!followCamera || liveCode === followed.current) return;
+    const match = horses.find((horse) => horse.horseCode === liveCode);
+    if (match) {
+      setSelectedHorseId(match.id);
+      followed.current = liveCode;
+    }
+  }, [liveCode, horses, followCamera]);
+
+  const changeFollowCamera = useCallback((on: boolean) => {
+    setFollowCamera(on);
+    followed.current = null;
+    try {
+      localStorage.setItem("followCamera", on ? "on" : "off");
+    } catch {
+      /* private window: just not remembered */
+    }
+  }, []);
 
   const handleRegisteredHorse = useCallback(
     async (horse: { id: string }) => {
@@ -198,7 +234,11 @@ export default function App() {
             <div>
               <div className="text-2xl">{selectedHorse?.name ?? "No horse registered"}</div>
               <div className="text-lg opacity-90">
-                {selectedHorse ? "Currently Monitoring" : "Open Register to begin"}
+                {!selectedHorse
+                  ? "Open Register to begin"
+                  : liveCode && liveCode === selectedHorse.horseCode
+                    ? "📷 In the stall now"
+                    : "Currently Monitoring"}
               </div>
             </div>
             <div className="border-l-2 border-green-400 pl-6">
@@ -252,7 +292,12 @@ export default function App() {
         {view === "dashboard" && (
           <Dashboard
             horse={selectedHorse}
+            horses={horses}
             settings={settings}
+            live={live}
+            followCamera={followCamera}
+            onFollowCameraChange={changeFollowCamera}
+            onSelectHorse={setSelectedHorseId}
             onRegister={can.registerHorses ? () => setCurrentView("register") : undefined}
           />
         )}

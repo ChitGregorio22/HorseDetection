@@ -5,8 +5,14 @@ Pi Camera ─► horse_monitor.py --stream 8000 ─► Tailscale Funnel ─► h
   (YOLO outline, name, temperature drawn on it)                               │
                                     Website Dashboard (Vercel) ◄──────────────┘  address saved ONCE in Settings
 horse_monitor.py --web ◄──── "Register a horse" requests ───── Supabase ◄── website Register page
-          └──── progress, new horse + photo, heartbeat ───► Supabase ──► website (live)
+          ├──── progress, new horse + photo, heartbeat ───► Supabase ──► website (live)
+          └──── every 2 s: which horse is in view + temp, air temp, humidity ──► Dashboard follows it
+                every 1 min: one stored reading per IDENTIFIED horse ──► History, trend, fever alerts
 ```
+
+> Everything here works the same for **thesisv2.py**: just use `thesisv2.py` wherever this guide says `horse_monitor.py`.
+
+**Dashboard follows the camera**: when the Pi identifies a horse (e.g. Brongco), the Dashboard switches to Brongco by itself and shows its live temperature, the air temperature and the humidity next to the camera. Unknown or not-yet-identified horses are shown as *Unknown horse* / *Identifying…* and are **never** stored under a name. Untick **Follow the camera** on the Dashboard to stay on one horse.
 
 **Registering horses now happens on the website**: the Register page shows the stall camera, you type the horse's details and press **Start registration**. horse_monitor.py takes its usual 30 fingerprint photos while you turn the horse, the website shows the progress, and at the end the Pi creates the horse on the website (with its photo and QR code). One registration: the Pi and the website always agree on which horse is which.
 
@@ -19,7 +25,19 @@ Files used on the Pi (all in this `raspi/` folder), copied **next to horse_monit
 ---
 
 ## Step 0: Database (once, in Supabase → SQL Editor)
-Run `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`, `06_signup_role.sql` (if not done yet), then **`07_remote_registration.sql`**.
+Run `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`, `06_signup_role.sql` (if not done yet), **`07_remote_registration.sql`**, then **`08_live_view.sql`** (Dashboard follows the camera).
+
+## Updating from an older web_link.py (already patched before)
+1. Run `08_live_view.sql` in Supabase → SQL Editor.
+2. Copy the new **`web_link.py`** and **`add_web_link.py`** over the old ones on the Pi.
+3. Upgrade the script once (it keeps a backup `…bak-before-web-v2`):
+   ```bash
+   python3 add_web_link.py thesisv2.py
+   ```
+   It prints `Upgraded: … now sends the live view + readings`. Running it again says `Nothing to do`.
+4. Restart the monitor (`sudo systemctl restart horse-monitor`, or stop and start it by hand).
+
+From now on, a newer `web_link.py` only needs to be copied over. The script doesn't need patching again.
 
 ## Step 1: Add live streaming to horse_monitor.py (once)
 1. Copy **`web_stream.py`** and **`add_streaming.py`** into the **same folder as `horse_monitor.py`** on the Pi.
@@ -218,6 +236,10 @@ Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The hea
 | Register page: "isn't installed in the database" | Run `supabase/07_remote_registration.sql`. |
 | "looks like X, not saved" | The new horse's photos match an already registered horse. If it really is a different horse, press **Register anyway**. |
 | `Could not find this line` from add_web_link.py | Your horse_monitor.py is a different version. Send the error to Claude. |
+| Dashboard says **Not live** | The monitor isn't running with `--web`, or it's the old patch: do *Updating from an older web_link.py*. |
+| Dashboard: "needs the database update 08_live_view.sql" | Run `supabase/08_live_view.sql`. |
+| Dashboard: "X isn't on the website yet" | That horse was registered on the Pi only: `python3 web_link.py --push-existing`. |
+| Log: *the website doesn't know X any more* | X was deleted on the website. Its readings stay on the Pi only. Register it again from the website. |
 | Video slow / laggy | Add `--stream-fps 4` to the service command. |
 
 ### Testing without horse_monitor (optional)

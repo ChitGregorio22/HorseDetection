@@ -47,6 +47,7 @@ export interface Reading {
   horse_id: string;
   body_temp: number;
   env_temp: number | null;
+  humidity?: number | null;
   status: HealthStatus;
   recorded_at: string;
 }
@@ -218,13 +219,18 @@ export async function getRecentReadings(horseId: string, limit = 20): Promise<Re
   const rows = check(
     await supabase
       .from("temperature_readings")
-      .select("id, horse_id, body_temp, env_temp, status, recorded_at")
+      .select("id, horse_id, body_temp, env_temp, humidity, status, recorded_at")
       .eq("horse_id", horseId)
       .order("recorded_at", { ascending: false })
       .limit(limit),
   ) as Record<string, unknown>[];
   return rows
-    .map((r) => ({ ...(r as unknown as Reading), body_temp: Number(r.body_temp), env_temp: num(r.env_temp) }))
+    .map((r) => ({
+      ...(r as unknown as Reading),
+      body_temp: Number(r.body_temp),
+      env_temp: num(r.env_temp),
+      humidity: num(r.humidity),
+    }))
     .reverse();
 }
 
@@ -297,7 +303,7 @@ export async function saveCalibration(deviceId: string, offset: number) {
 /** Calls `onChange` whenever readings, alerts or horses change. Returns an unsubscribe function. */
 export function subscribeToChanges(
   name: string,
-  tables: Array<"temperature_readings" | "alerts" | "horses" | "registration_requests">,
+  tables: Array<"temperature_readings" | "alerts" | "horses" | "registration_requests" | "live_view">,
   onChange: (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void,
   horseId?: string,
 ) {
@@ -309,7 +315,7 @@ export function subscribeToChanges(
         event: "*",
         schema: "public",
         table,
-        ...(horseId && table !== "horses" && table !== "registration_requests" ? { filter: `horse_id=eq.${horseId}` } : {}),
+        ...(horseId && (table === "temperature_readings" || table === "alerts") ? { filter: `horse_id=eq.${horseId}` } : {}),
       },
       (payload) => onChange(table, (payload.new ?? {}) as Record<string, unknown>, payload.eventType),
     );
@@ -564,5 +570,65 @@ export async function getHorseBasic(id: string) {
     normalTemperature: Number(h.normal_temp),
     photo: photoUrl((h.photo_path as string | null) ?? null) ?? "",
     registeredAt: String(h.registered_at),
+  };
+}
+
+// ---------- Live view: what the stall camera sees right now (supabase/08_live_view.sql) ----------
+export interface LiveHorse {
+  /** identified = the Pi is sure who it is; identifying = still collecting photos; unknown = not a registered horse */
+  status: "identified" | "identifying" | "unknown";
+  name: string | null;
+  horse_code: string | null;
+  confidence: number | null;
+  best_guess: string | null;
+  body_temp: number | null;
+  surface_temp: number | null;
+}
+
+export interface LiveView {
+  device_id: string;
+  updated_at: string;
+  present: boolean;
+  mode: string | null;
+  registering: string | null;
+  horses: LiveHorse[];
+  air_temp: number | null;
+  humidity: number | null;
+}
+
+/** Newest live view from any Pi. null = nothing sent yet; undefined = 08_live_view.sql isn't installed. */
+export async function getLiveView(): Promise<LiveView | null | undefined> {
+  const { data, error } = await supabase
+    .from("live_view")
+    .select("device_id, state, updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    if (/live_view|schema cache|does not exist/i.test(error.message)) return undefined;
+    throw new Error(friendlyError(error.message));
+  }
+  const row = (data ?? [])[0] as { device_id: string; state: Record<string, unknown>; updated_at: string } | undefined;
+  return row ? toLiveView(row.device_id, row.state, row.updated_at) : null;
+}
+
+export function toLiveView(deviceId: string, state: Record<string, unknown>, updatedAt: string): LiveView {
+  const horses = Array.isArray(state.horses) ? (state.horses as Record<string, unknown>[]) : [];
+  return {
+    device_id: deviceId,
+    updated_at: updatedAt,
+    present: Boolean(state.present),
+    mode: (state.mode as string) ?? null,
+    registering: (state.registering as string) ?? null,
+    air_temp: num(state.air_temp),
+    humidity: num(state.humidity),
+    horses: horses.map((h) => ({
+      status: (h.status as LiveHorse["status"]) ?? "identifying",
+      name: (h.name as string) ?? null,
+      horse_code: (h.horse_code as string) ?? null,
+      confidence: num(h.confidence),
+      best_guess: (h.best_guess as string) ?? null,
+      body_temp: num(h.body_temp),
+      surface_temp: num(h.surface_temp),
+    })),
   };
 }

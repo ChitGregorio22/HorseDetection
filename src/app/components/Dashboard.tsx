@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CloudSun, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { AlertTriangle, Camera, Droplets, Minus, ScanSearch, Thermometer, TrendingDown, TrendingUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from 'recharts';
 import type { HorseRecord } from '../App';
 import { LiveCamera } from './LiveCamera';
-import { classify, getRecentReadings, subscribeToChanges, type Reading, type Settings } from '../lib/api';
+import { classify, getRecentReadings, subscribeToChanges, type LiveHorse, type Reading, type Settings } from '../lib/api';
+import type { useLiveView } from './useLiveView';
 
 interface DashboardProps {
   horse: HorseRecord | null;
+  horses: HorseRecord[];
   settings: Settings;
+  live: ReturnType<typeof useLiveView>;
+  followCamera: boolean;
+  onFollowCameraChange: (on: boolean) => void;
+  onSelectHorse: (id: string) => void;
   /** undefined when this user's role can't register horses */
   onRegister?: () => void;
 }
@@ -17,7 +23,23 @@ const formatTime = (iso: string) => {
   return `${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
 };
 
-export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
+type Level = 'normal' | 'warning' | 'fever';
+const LEVEL_STYLE: Record<Level, { text: string; color: string; bg: string; border: string; hex: string }> = {
+  fever: { text: 'FEVER', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-600', hex: '#dc2626' },
+  warning: { text: 'WARNING', color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-600', hex: '#ca8a04' },
+  normal: { text: 'NORMAL', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-600', hex: '#16a34a' },
+};
+
+export function Dashboard({
+  horse,
+  horses,
+  settings,
+  live,
+  followCamera,
+  onFollowCameraChange,
+  onSelectHorse,
+  onRegister,
+}: DashboardProps) {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -41,6 +63,7 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
         horse_id: String(row.horse_id),
         body_temp: Number(row.body_temp),
         env_temp: row.env_temp == null ? null : Number(row.env_temp),
+        humidity: row.humidity == null ? null : Number(row.humidity),
         status: row.status as Reading['status'],
         recorded_at: String(row.recorded_at),
       };
@@ -57,21 +80,102 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
 
   const recentData = readings.map((r) => ({ time: formatTime(r.recorded_at), temp: r.body_temp }));
   const latest = readings[readings.length - 1];
+  const hasData = Boolean(latest) || horse?.currentTemperature != null;
   const currentTemp = latest?.body_temp ?? horse?.currentTemperature ?? 0;
-  const envTemp = latest?.env_temp ?? horse?.envTemperature ?? null;
   const normalTemp = horse?.normalTemperature ?? 37.2;
+  // status from the value as shown (37.95 shows as 38.0, so it is judged as 38.0)
+  const levelOf = (t: number): Level => classify(Math.round(t * 10) / 10, settings) as Level;
+  const status = LEVEL_STYLE[levelOf(currentTemp)];
+
+  // ---- the stall right now (from the Pi), falling back to the last stored reading
+  const main = live.main;
+  const mainRecord = main?.horse_code ? horses.find((h) => h.horseCode === main.horse_code) ?? null : null;
+  const others = live.fresh && live.view ? live.view.horses.filter((h) => h !== main) : [];
+  const airTemp = live.fresh ? live.view?.air_temp ?? null : latest?.env_temp ?? horse?.envTemperature ?? null;
+  const humidity = live.fresh ? live.view?.humidity ?? null : latest?.humidity ?? null;
 
   const camera = (
     <LiveCamera
       url={settings.camera_stream_url}
-      label={horse ? `Monitoring: ${horse.name}` : undefined}
+      label={main?.status === 'identified' && main.name ? `In view: ${main.name}` : horse ? `Monitoring: ${horse.name}` : undefined}
     />
+  );
+
+  const stallPanel = (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border-2 border-gray-200 bg-white p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xl text-gray-700">
+            <Camera className="h-6 w-6" /> In the stall now
+          </div>
+          <LiveAge live={live} />
+        </div>
+        <StallHorse
+          live={live}
+          main={main}
+          mainRecord={mainRecord}
+          fallback={horse && hasData ? { name: horse.name, temp: currentTemp, at: latest?.recorded_at ?? horse.lastUpdated } : null}
+          levelOf={levelOf}
+          selectedId={horse?.id ?? null}
+          onSelectHorse={onSelectHorse}
+        />
+        {others.length > 0 && (
+          <div className="mt-4 border-t border-gray-200 pt-3 text-lg text-gray-700">
+            Also in view:{' '}
+            {others.map((h, i) => (
+              <span key={i}>
+                {i > 0 && ', '}
+                {h.status === 'identified' ? h.name : h.status === 'unknown' ? 'unknown horse' : 'identifying…'}
+                {h.body_temp != null && <span className="tabular-nums"> {h.body_temp.toFixed(1)}°C</span>}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-2xl border-4 border-blue-600 bg-blue-50 p-4">
+          <div className="flex items-center gap-2 text-lg text-blue-700">
+            <Thermometer className="h-6 w-6" /> Air temp
+          </div>
+          <div className="mt-2 text-4xl tabular-nums text-blue-700">{airTemp == null ? '—' : `${airTemp.toFixed(1)}°C`}</div>
+        </div>
+        <div className="rounded-2xl border-4 border-cyan-600 bg-cyan-50 p-4">
+          <div className="flex items-center gap-2 text-lg text-cyan-700">
+            <Droplets className="h-6 w-6" /> Humidity
+          </div>
+          <div className="mt-2 text-4xl tabular-nums text-cyan-700">{humidity == null ? '—' : `${humidity.toFixed(0)}%`}</div>
+        </div>
+      </div>
+
+      {live.installed && (
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-lg">
+          <input
+            type="checkbox"
+            className="h-6 w-6 accent-green-600"
+            checked={followCamera}
+            onChange={(e) => onFollowCameraChange(e.target.checked)}
+          />
+          <span>
+            Follow the camera
+            <span className="block text-base text-gray-500">Switch the Dashboard to the horse the camera identifies</span>
+          </span>
+        </label>
+      )}
+    </div>
+  );
+
+  const top = (
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2">{camera}</div>
+      {stallPanel}
+    </div>
   );
 
   if (!horse) {
     return (
       <div className="p-6 space-y-6">
-        {camera}
+        {top}
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 py-10 text-center">
           <div className="mb-4 text-6xl">🐎</div>
           <h1 className="text-4xl">No horse to monitor yet</h1>
@@ -94,15 +198,16 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
     );
   }
 
-  if (!loading && !latest && horse.currentTemperature == null) {
+  if (!loading && !hasData) {
     return (
       <div className="p-6 space-y-6">
-        {camera}
+        {top}
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 py-10 text-center">
           <div className="mb-4 text-6xl">🌡️</div>
-          <h1 className="text-4xl">Waiting for {horse.name}'s first reading</h1>
+          <h1 className="text-4xl">Waiting for {horse.name}'s first stored reading</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
-            Scan {horse.name}'s QR tag with the thermal camera. The temperature will appear here automatically.
+            When the camera identifies {horse.name}, the Pi stores one reading per minute. The trend and history appear
+            here automatically.
           </p>
           <p className="mt-4 rounded-lg bg-white px-4 py-2 font-mono text-xl text-green-800">{horse.horseCode}</p>
         </div>
@@ -139,53 +244,16 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
 
   const TrendIcon = getTrendIcon();
 
-  const getStatus = (temp: number) => {
-    const level = classify(temp, settings);
-    if (level === 'fever') return { text: 'FEVER', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-600' };
-    if (level === 'warning') return { text: 'WARNING', color: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-600' };
-    return { text: 'NORMAL', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-600' };
-  };
-
-  const status = getStatus(currentTemp);
-
   return (
     <div className="p-6 space-y-6">
-      {/* Live Camera (main panel) + current temperature beside it */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">{camera}</div>
+      {top}
 
-        <div className="flex flex-col gap-4">
-          {/* Body Temperature */}
-          <div className={`${status.bg} ${status.border} border-4 rounded-2xl p-6`}>
-            <div className="flex items-center gap-3">
-              <Activity className={`${status.color} w-8 h-8`} />
-              <h1 className="text-3xl">{horse.name}</h1>
-            </div>
-            <div className="mt-3 text-6xl tabular-nums">{currentTemp.toFixed(1)}°C</div>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className={`${status.color} text-2xl px-4 py-1 rounded-lg ${status.bg} border-2 ${status.border}`}>
-                {status.text}
-              </span>
-              <span className="text-lg text-gray-600">Body Temperature</span>
-            </div>
-            {status.text !== 'NORMAL' && (
-              <div className={`${status.color} mt-4 flex items-center gap-2 text-xl`}>
-                <AlertTriangle className="w-7 h-7" />
-                <span>{status.text === 'FEVER' ? 'Needs Immediate Attention' : 'Monitor Closely'}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Environment Temperature */}
-          <div className="bg-blue-50 border-4 border-blue-600 rounded-2xl p-6">
-            <div className="flex items-center gap-3">
-              <CloudSun className="text-blue-600 w-8 h-8" />
-              <h2 className="text-2xl">Environment</h2>
-            </div>
-            <div className="mt-3 text-5xl tabular-nums text-blue-600">{envTemp == null ? '—' : `${envTemp.toFixed(1)}°C`}</div>
-            <div className="mt-2 text-lg text-blue-700">Ambient Temperature</div>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-baseline gap-3 pt-2">
+        <h2 className="text-3xl">{horse.name}</h2>
+        <span className="text-xl text-gray-600">stored readings</span>
+        <span className={`${status.color} rounded-lg border-2 ${status.border} ${status.bg} px-3 py-0.5 text-xl`}>
+          Last {currentTemp.toFixed(1)}°C · {status.text}
+        </span>
       </div>
 
       {/* Data Analysis */}
@@ -206,7 +274,7 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
           <div className="bg-indigo-50 border-2 border-indigo-600 rounded-xl p-4">
             <div className="text-lg text-indigo-600 mb-2">Average Temperature</div>
             <div className="text-3xl text-indigo-700 tabular-nums">{avgTemp.toFixed(1)}°C</div>
-            <div className="text-lg text-gray-600 mt-2">Latest 3-minute readings</div>
+            <div className="text-lg text-gray-600 mt-2">Last {recentData.length} stored readings</div>
           </div>
 
           <div className="bg-orange-50 border-2 border-orange-600 rounded-xl p-4">
@@ -219,15 +287,15 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
 
           <div className="bg-teal-50 border-2 border-teal-600 rounded-xl p-4">
             <div className="text-lg text-teal-600 mb-2">Monitoring Status</div>
-            <div className="text-3xl text-teal-700">Active</div>
-            <div className="text-lg text-gray-600 mt-2">Updates every 3 minutes</div>
+            <div className="text-3xl text-teal-700">{live.fresh ? 'Live' : 'Not live'}</div>
+            <div className="text-lg text-gray-600 mt-2">One reading per minute while in view</div>
           </div>
         </div>
       </div>
 
       {/* Live Graph */}
       <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
-        <h2 className="text-2xl mb-4">Live Temperature Trend</h2>
+        <h2 className="text-2xl mb-4">Temperature Trend</h2>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={recentData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -244,9 +312,9 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
             <Line
               type="monotone"
               dataKey="temp"
-              stroke={status.color === 'text-red-600' ? '#dc2626' : status.color === 'text-yellow-600' ? '#ca8a04' : '#16a34a'}
+              stroke={status.hex}
               strokeWidth={3}
-              dot={{ fill: status.color === 'text-red-600' ? '#dc2626' : status.color === 'text-yellow-600' ? '#ca8a04' : '#16a34a', r: 5 }}
+              dot={{ fill: status.hex, r: 5 }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -268,6 +336,156 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
           <div className="text-red-600 text-xl mb-2">Fever Range</div>
           <div className="text-3xl">≥ {settings.fever_threshold.toFixed(1)}°C</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveAge({ live }: { live: ReturnType<typeof useLiveView> }) {
+  if (!live.installed || live.view === undefined) return null;
+  if (live.fresh) {
+    const s = Math.round((live.ageMs ?? 0) / 1000);
+    return (
+      <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-base text-green-800">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-green-600" />
+        Live{s >= 3 ? ` · ${s}s ago` : ''}
+      </span>
+    );
+  }
+  return <span className="rounded-full bg-gray-100 px-3 py-1 text-base text-gray-600">Not live</span>;
+}
+
+function StallHorse({
+  live,
+  main,
+  mainRecord,
+  fallback,
+  levelOf,
+  selectedId,
+  onSelectHorse,
+}: {
+  live: ReturnType<typeof useLiveView>;
+  main: LiveHorse | null;
+  mainRecord: HorseRecord | null;
+  fallback: { name: string; temp: number; at: string | null } | null;
+  levelOf: (t: number) => Level;
+  selectedId: string | null;
+  onSelectHorse: (id: string) => void;
+}) {
+  // Not live: the Pi isn't sending (old version, stopped, or 08 not installed) → show the last stored reading
+  if (!live.fresh) {
+    return (
+      <div className="mt-4">
+        {fallback ? (
+          <>
+            <div className="text-3xl">{fallback.name}</div>
+            <BigTemp temp={fallback.temp} level={levelOf(fallback.temp)} />
+            <div className="mt-2 text-lg text-gray-600">Last stored reading{fallback.at ? `, ${new Date(fallback.at).toLocaleString()}` : ''}</div>
+          </>
+        ) : (
+          <div className="text-2xl text-gray-500">No reading yet</div>
+        )}
+        <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-600">
+          {!live.installed
+            ? 'Live identification needs the database update 08_live_view.sql.'
+            : live.view === null
+              ? 'The Pi hasn\u2019t sent live data yet. Run thesisv2.py with --web.'
+              : 'The Pi stopped sending live data (monitor stopped or no internet).'}
+        </p>
+      </div>
+    );
+  }
+
+  if (live.view?.mode === 'registering') {
+    return (
+      <div className="mt-4">
+        <div className="text-3xl">Registering {live.view.registering ?? 'a horse'}…</div>
+        <p className="mt-2 text-lg text-gray-600">Identification resumes when the registration ends.</p>
+      </div>
+    );
+  }
+
+  if (!main) {
+    return (
+      <div className="mt-4">
+        <div className="text-3xl text-gray-500">No horse in view</div>
+        <p className="mt-2 text-lg text-gray-600">The camera is watching the stall.</p>
+      </div>
+    );
+  }
+
+  if (main.status === 'identifying') {
+    return (
+      <div className="mt-4">
+        <div className="flex items-center gap-2 text-3xl text-gray-700">
+          <ScanSearch className="h-8 w-8 animate-pulse" /> Identifying…
+        </div>
+        {main.body_temp != null && <BigTemp temp={main.body_temp} level={levelOf(main.body_temp)} />}
+        <p className="mt-2 text-lg text-gray-600">A horse is in view. The camera is checking who it is.</p>
+      </div>
+    );
+  }
+
+  if (main.status === 'unknown') {
+    return (
+      <div className="mt-4">
+        <div className="text-3xl">Unknown horse</div>
+        {main.body_temp != null && <BigTemp temp={main.body_temp} level={levelOf(main.body_temp)} />}
+        <p className="mt-2 text-lg text-gray-600">
+          Not a registered horse{main.best_guess ? ` (closest: ${main.best_guess}, not close enough)` : ''}. Its
+          readings are not stored under any name.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="text-4xl">{main.name}</div>
+      <div className="mt-1 text-lg text-gray-600">
+        Identified{main.confidence != null ? ` · ${Math.round(main.confidence * 100)}% match` : ''}
+        {mainRecord ? ` · ${mainRecord.horseCode}` : ''}
+      </div>
+      {main.body_temp != null ? (
+        <>
+          <BigTemp temp={main.body_temp} level={levelOf(main.body_temp)} />
+          <div className="mt-1 text-base text-gray-500">
+            Body temperature (estimated){main.surface_temp != null ? ` · surface ${main.surface_temp.toFixed(1)}°C` : ''}
+          </div>
+        </>
+      ) : (
+        <p className="mt-3 text-lg text-gray-600">No temperature: the horse is outside the thermal camera's view.</p>
+      )}
+      {!mainRecord && (
+        <p className="mt-3 rounded-lg bg-yellow-50 px-3 py-2 text-base text-yellow-800">
+          {main.name} isn't on the website yet. On the Pi: <code>python3 web_link.py --push-existing</code>
+        </p>
+      )}
+      {mainRecord && mainRecord.id !== selectedId && (
+        <button
+          type="button"
+          onClick={() => onSelectHorse(mainRecord.id)}
+          className="mt-3 rounded-lg border-2 border-green-600 px-4 py-2 text-lg text-green-700 hover:bg-green-50"
+        >
+          Show {main.name}'s readings
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BigTemp({ temp, level }: { temp: number; level: Level }) {
+  const st = LEVEL_STYLE[level];
+  return (
+    <div className={`mt-3 rounded-xl border-4 ${st.border} ${st.bg} px-4 py-3`}>
+      <div className={`text-6xl tabular-nums ${st.color}`}>{temp.toFixed(1)}°C</div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className={`${st.color} text-2xl`}>{st.text}</span>
+        {level !== 'normal' && (
+          <span className={`${st.color} flex items-center gap-1 text-lg`}>
+            <AlertTriangle className="h-5 w-5" /> {level === 'fever' ? 'Needs immediate attention' : 'Monitor closely'}
+          </span>
+        )}
       </div>
     </div>
   );
