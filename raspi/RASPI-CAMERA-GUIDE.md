@@ -1,182 +1,180 @@
-# Live Camera from the Raspberry Pi → Website Dashboard (Tailscale Funnel)
+# Raspberry Pi → Website: live camera (Tailscale Funnel) + connection indicator
 
 ```
-Pi camera ──► camera_stream.py (port 8000) ──► Tailscale Funnel ──► https://horse-cam.<your-tailnet>.ts.net
-   (starts on boot)                            (starts on boot)                       │
-                                                       Website Dashboard (Vercel) ◄───┘  saved ONCE in Settings
+Pi Camera ─► horse_monitor.py --stream 8000 ─► Tailscale Funnel ─► https://horse-cam.<tailnet>.ts.net
+  (YOLO outline, name, temperature drawn on it)                               │
+                                    Website Dashboard (Vercel) ◄──────────────┘  address saved ONCE in Settings
+heartbeat.py ─────────────────────────────────────────────────► Supabase ─► header "Raspberry Pi: Online"
 ```
 
-**How it works:** the Pi makes an **outgoing** connection to Tailscale. Tailscale gives it a permanent public `https://` address and forwards visitors through that connection to the Pi's camera program. No one connects *into* your network directly, so:
-- ❌ **No pfSense, no router changes, no port forwarding, no public IP needed.** It works behind any home/school Wi-Fi, mobile hotspot, or ISP that blocks incoming connections (CGNAT).
-- ✅ The address stays the same after reboots, so you paste it in Settings **once**.
-- ✅ Free (Tailscale Personal plan). The only requirement is that the Pi has internet.
+**Only one program can use the Pi camera at a time.** `horse_monitor.py` already uses it, so the website shows **horse_monitor's own picture** (outline, horse name, temperature). You don't run `camera_stream.py` at the same time. That one is only for testing without horse_monitor.
+
+**Tailscale Funnel:** the Pi makes an *outgoing* connection to Tailscale, and Tailscale gives it a permanent `https://` address. **No pfSense, no router or port-forwarding changes, no public IP.** It works behind any Wi-Fi or mobile hotspot. Free, and the address never changes.
+
+Files used on the Pi (all in this `raspi/` folder): `web_stream.py`, `add_streaming.py`, `heartbeat.py`, and `camera_stream.py` (testing only).
 
 ---
 
-## Step 0: Database update (once)
-In Supabase, open **SQL Editor → New query**. Paste the contents of `supabase/03_live_camera.sql` and click **Run**.
+## Step 0: Database (once, in Supabase → SQL Editor)
+Run `supabase/03_live_camera.sql`, then `04_device_status.sql`, if you haven't already.
 
-## Step 1: Copy the program and install requirements (on the Pi)
-```bash
-mkdir -p /home/pi/horse
-# copy camera_stream.py into /home/pi/horse (USB stick, or from your Mac:)
-#   scp raspi/camera_stream.py pi@raspberrypi.local:/home/pi/horse/
-sudo apt update
-sudo apt install -y python3-flask python3-opencv python3-picamera2
-```
-> If your Pi user isn't `pi`, replace `/home/pi` and `User=pi` below with your username (check with `whoami`).
+## Step 1: Add live streaming to horse_monitor.py (once)
+1. Copy **`web_stream.py`** and **`add_streaming.py`** into the **same folder as `horse_monitor.py`** on the Pi.
+2. In that folder:
+   ```bash
+   python3 add_streaming.py horse_monitor.py
+   ```
+   It prints `Done: horse_monitor.py now has --stream` and keeps a backup (`horse_monitor.py.bak-before-stream`).
+3. Pick a secret stream key (letters and numbers, e.g. `HorseCam2026x`) and test it **with the window**:
+   ```bash
+   python3 horse_monitor.py --thermal --dht --stream 8000 --stream-key HorseCam2026x
+   ```
+4. On a phone or laptop **on the same Wi-Fi**, open `http://<pi-ip>:8000` (find the IP with `hostname -I`). You should see the same picture as the monitor window, outlines and names included. ✅
 
-## Step 2: Test the camera (on the Pi)
-Pick your own secret key in place of `MySecretKey123`.
-```bash
-python3 /home/pi/horse/camera_stream.py --key MySecretKey123          # Pi Camera Module
-python3 /home/pi/horse/camera_stream.py --usb --key MySecretKey123    # USB / USB thermal camera / USB CCTV
-python3 /home/pi/horse/camera_stream.py --test --key MySecretKey123   # no camera yet
-```
-On a laptop **on the same Wi-Fi**, open `http://raspberrypi.local:8000`. If you see video, it works. Press **Ctrl + C** to stop it.
+All the old options and hotkeys still work. `--stream` only adds the website picture. The picture updates at the speed horse_monitor runs (about 2 per second with YOLO), and it's exactly what the system sees.
 
-## Step 3: Make the camera start automatically on boot
-```bash
-sudo nano /etc/systemd/system/horse-camera.service
-```
-Paste this. Change the key, and add `--usb` after `camera_stream.py` if you use a USB camera:
-```ini
-[Unit]
-Description=Horse Thermal Monitor camera stream
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/bin/python3 /home/pi/horse/camera_stream.py --key MySecretKey123
-Restart=always
-RestartSec=5
-User=pi
-
-[Install]
-WantedBy=multi-user.target
-```
-Save (**Ctrl + O**, Enter, **Ctrl + X**), then:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now horse-camera
-systemctl status horse-camera      # should say "active (running)"
-```
-
-## Step 4: Install Tailscale and log in (on the Pi)
-1. Create a free account at **tailscale.com** (sign in with Google/GitHub). Use a shared group account, so it doesn't depend on one member.
+## Step 2: Install Tailscale on the Pi (once)
+1. Create a free account at **tailscale.com**, ideally with a shared group email so it doesn't depend on one member.
 2. On the Pi:
    ```bash
    curl -fsSL https://tailscale.com/install.sh | sh
    sudo tailscale up --hostname=horse-cam
    ```
-3. It prints a login link. Open it on any device, log in, and approve the Pi.
+3. It prints a link. Open it on any device, log in to the account, and approve the Pi.
+4. Check it worked: `tailscale status` lists `horse-cam`.
 
-Tailscale is installed as a system service, so it **starts on boot automatically**.
+Tailscale is now a system service and **starts by itself on every boot**.
 
-## Step 5: Turn on Funnel (public https address)
-1. On **login.tailscale.com/admin** → **DNS** page: make sure **MagicDNS** and **HTTPS Certificates** are on, and turn on **Funnel**. On new accounts the first two are usually already on.
+## Step 3: Turn on Funnel (public https address)
+1. On **login.tailscale.com/admin → DNS**: make sure **MagicDNS** and **HTTPS Certificates** are on.
 2. On the Pi:
    ```bash
    sudo tailscale funnel --bg 8000
    ```
-   - `--bg` keeps it running in the background, and it **comes back by itself after a reboot**.
-   - If it prints a link saying Funnel isn't enabled yet, open the link, click **Enable**, then run the command again.
-3. It prints your permanent address, like:
+   - If it prints a link saying Funnel isn't enabled for your tailnet, open it, click **Enable**, and run the command again.
+   - `--bg` keeps it running in the background and it **comes back by itself after a reboot**.
+3. It prints your permanent address, e.g. `https://horse-cam.tail1a2b3c.ts.net/`. Check anytime with:
+   ```bash
+   tailscale funnel status
    ```
-   https://horse-cam.tail1a2b3c.ts.net/
-   ```
-   Check anytime with `tailscale funnel status`.
+4. Test from your phone **on mobile data** (not the farm Wi-Fi): open `https://horse-cam.tail1a2b3c.ts.net/`. You should see the live picture.
 
-## Step 6: Put the address in the website (once)
-1. Log in as **admin** → **Settings** → **Live Camera**.
-2. Paste your address **+ `stream.mjpg?key=` + your key**:
+## Step 4: Put the address in the website (once)
+1. Log in as **owner or admin** → **Settings** → **Live Camera**.
+2. Paste the address **+ `stream.mjpg?key=` + your key**:
    ```
-   https://horse-cam.tail1a2b3c.ts.net/stream.mjpg?key=MySecretKey123
+   https://horse-cam.tail1a2b3c.ts.net/stream.mjpg?key=HorseCam2026x
    ```
-3. Click **Save All Settings** → open **Dashboard** → red **LIVE** badge. ✅
+3. **Save All Settings** → **Dashboard** → red **LIVE** badge. ✅
+
+## Step 5: Start horse_monitor automatically on boot (no window)
+For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`. That means no window on the Pi, but the picture still goes to the website.
+
+1. Find the two paths you need. In the folder with horse_monitor.py, with your Python environment active (if you use one):
+   ```bash
+   pwd            # e.g. /home/pi/horse         → WorkingDirectory
+   which python3  # e.g. /home/pi/horse/venv/bin/python3 → first part of ExecStart
+   whoami         # e.g. pi                     → User
+   ```
+2. Create the service:
+   ```bash
+   sudo nano /etc/systemd/system/horse-monitor.service
+   ```
+   Paste, replacing the paths, user and key with yours:
+   ```ini
+   [Unit]
+   Description=Horse Thermal Monitor (detection + website stream)
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   WorkingDirectory=/home/pi/horse
+   ExecStart=/home/pi/horse/venv/bin/python3 horse_monitor.py --thermal --dht --no-show --stream 8000 --stream-key HorseCam2026x
+   Restart=always
+   RestartSec=10
+   User=pi
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Save (**Ctrl + O**, Enter, **Ctrl + X**).
+3. Turn it on:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now horse-monitor
+   journalctl -u horse-monitor -f        # live log (Ctrl + C to stop watching)
+   ```
+
+**Registering a horse or taking calibration readings** (`r`, `a`, `k` need the window): stop the service, run it by hand with the window, then start the service again:
+```bash
+sudo systemctl stop horse-monitor
+python3 horse_monitor.py --thermal --dht --stream 8000 --stream-key HorseCam2026x   # window + website
+sudo systemctl start horse-monitor
+```
+
+## Step 6: Connection indicator ("Raspberry Pi: Online")
+1. Register the Pi as a device (once). In Supabase **SQL Editor**:
+   ```sql
+   insert into public.devices (name, location)
+   values ('Stall Pi', 'Vv Neri Livestock Farm – stall 1')
+   returning device_key;
+   ```
+   Copy the `device_key` it shows.
+2. Copy **`heartbeat.py`** to the Pi (same folder) and test:
+   ```bash
+   python3 heartbeat.py --once --url https://pjqocndvsdkpeuzjjxdz.supabase.co \
+     --key sb_publishable_YOUR_KEY --device-key PASTE_DEVICE_KEY
+   ```
+   It ends with `✓ connected to the website`. The report shows `"camera": true` while horse_monitor is streaming, and `"monitor": true` while horse_monitor.py runs.
+3. Make it automatic:
+   ```bash
+   sudo nano /etc/systemd/system/horse-heartbeat.service
+   ```
+   ```ini
+   [Unit]
+   Description=Horse Thermal Monitor heartbeat
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   Environment=SUPABASE_URL=https://pjqocndvsdkpeuzjjxdz.supabase.co
+   Environment=SUPABASE_KEY=sb_publishable_YOUR_KEY
+   Environment=DEVICE_KEY=PASTE_DEVICE_KEY
+   ExecStart=/usr/bin/python3 /home/pi/horse/heartbeat.py
+   Restart=always
+   RestartSec=10
+   User=pi
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now horse-heartbeat
+   ```
 
 ## Step 7: Test that it's really automatic
 ```bash
 sudo reboot
 ```
-Wait 1–2 minutes and open the Dashboard. The camera should come back **LIVE** by itself, without opening the Pi. The Dashboard also retries every 20 seconds while the Pi is starting up.
-
----
-
-## Connection indicator: "Raspberry Pi: Online" on the website
-Every 30 seconds the Pi checks in. The website header shows **🟢 Raspberry Pi: Online**, or **🔴 Offline** if there's been no check-in for 90 seconds. **Settings → Raspberry Pi Connection** shows details: camera, thermal sensor, DHT22, detection program, CPU temperature, uptime and IP.
-
-### A. Database (once)
-In Supabase **SQL Editor**, run `supabase/04_device_status.sql`.
-
-### B. Register the Pi as a device (once)
-If you deleted the demo device, add yours. In SQL Editor, run:
-```sql
-insert into public.devices (name, location)
-values ('Stall Pi', 'Vv Neri Livestock Farm – stall 1')
-returning device_key;
-```
-Copy the `device_key` it shows. That's the Pi's password for talking to the website.
-
-### C. Test from the Pi
-Copy `heartbeat.py` to `/home/pi/horse/`, then (with your values):
-```bash
-python3 /home/pi/horse/heartbeat.py --once \
-  --url https://pjqocndvsdkpeuzjjxdz.supabase.co \
-  --key sb_publishable_YOUR_KEY \
-  --device-key PASTE_DEVICE_KEY
-```
-It prints the health report, then `✓ connected to the website`. Refresh the website: the header shows **Raspberry Pi: Online**. ✅
-
-### D. Make it automatic (starts on boot)
-```bash
-sudo nano /etc/systemd/system/horse-heartbeat.service
-```
-```ini
-[Unit]
-Description=Horse Thermal Monitor heartbeat
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Environment=SUPABASE_URL=https://pjqocndvsdkpeuzjjxdz.supabase.co
-Environment=SUPABASE_KEY=sb_publishable_YOUR_KEY
-Environment=DEVICE_KEY=PASTE_DEVICE_KEY
-ExecStart=/usr/bin/python3 /home/pi/horse/heartbeat.py
-Restart=always
-RestartSec=10
-User=pi
-
-[Install]
-WantedBy=multi-user.target
-```
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now horse-heartbeat
-journalctl -u horse-heartbeat -n 20      # should show "✓ connected to the website"
-```
-
-**Before proceeding with any test:** open the website and check that the header says **Raspberry Pi: Online**. If it says Offline, the Pi has no internet, is off, or the service stopped.
-
-> Later, inside `horse_monitor.py`, you can report the real sensor state:
-> `from heartbeat import Heartbeat` → `hb = Heartbeat(URL, KEY, DEVICE_KEY)` → `hb.update(thermal=True, dht=True, air_temp=27.4, humidity=81)`.
-> If you do that, stop the separate `horse-heartbeat` service so only one heartbeat runs.
+Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The header should show **Raspberry Pi: Online** and the Dashboard camera **LIVE**, without touching the Pi.
 
 ---
 
 ## Troubleshooting
-| Dashboard shows | What to do |
+| What you see | What to do |
 |---|---|
-| **Camera not set up yet** | No address saved. Do Step 6. |
-| **Camera offline** | On the Pi: `systemctl status horse-camera` (camera program) and `tailscale funnel status` (Funnel). Check that the Pi has internet. |
-| Offline only after a reboot | Run `sudo systemctl enable horse-camera`, and run `sudo tailscale funnel --bg 8000` again (with `--bg`). |
-| **Can't be shown here (http://)** | You pasted the local `http://` address. Use the `https://…ts.net` Funnel address. |
-| Video slow / laggy | Edit the service: add `--width 480 --height 360 --quality 60 --fps 10`, then `sudo systemctl restart horse-camera`. |
-| `No camera found at /dev/video0` | `ls /dev/video*` to list cameras, then add `--device 1` (etc.) to the service. |
-| See program errors | `journalctl -u horse-camera -n 50` |
-| Page says *Wrong or missing ?key=* | The key in the website address doesn't match `--key` in the service. |
-| Header says **Raspberry Pi: Not set up** | Run `supabase/04_device_status.sql`. |
-| Header says **Offline** | On the Pi: `journalctl -u horse-heartbeat -n 20`. *Unknown or inactive device* means the DEVICE_KEY is wrong; *cannot reach Supabase* means no internet. |
+| Dashboard: **Camera not set up yet** | No address saved. Do Step 4. |
+| Dashboard: **Camera offline** | On the Pi: `systemctl status horse-monitor` (running?) and `tailscale funnel status` (Funnel on?). Then open `http://<pi-ip>:8000` on the farm Wi-Fi. |
+| `Could not find this line` from add_streaming.py | Your horse_monitor.py is a different version. Send the error to Claude. |
+| **Can't be shown here (http://)** | You pasted the local `http://` address. Use the `https://…ts.net` address. |
+| Page says *Wrong or missing ?key=* | The key in the website address doesn't match `--stream-key`. |
+| `Address already in use` (port 8000) | Something else uses port 8000, e.g. `camera_stream.py` or a second horse_monitor. Stop it: `sudo systemctl stop horse-camera` / `pkill -f camera_stream.py`. |
+| Camera error *"Device or resource busy"* | Two programs are using the camera. Only horse_monitor should run. `sudo systemctl disable --now horse-camera` if you set up camera_stream earlier. |
+| Header **Raspberry Pi: Offline** | `journalctl -u horse-heartbeat -n 20`. *Unknown or inactive device* = wrong DEVICE_KEY; *cannot reach Supabase* = no internet. |
+| Header **Not set up** | Run `supabase/04_device_status.sql`. |
+| See horse_monitor errors | `journalctl -u horse-monitor -n 50` |
+| Video slow / laggy | Add `--stream-fps 4` to the service command. |
 
-### Alternative: Cloudflare Quick Tunnel (for quick testing only)
-`cloudflared tunnel --url http://localhost:8000` gives a free `https://….trycloudflare.com` address with no account. The address **changes every restart**, so it doesn't suit the automatic setup.
+### Testing without horse_monitor (optional)
+`camera_stream.py` streams the plain camera on port 8000 (`python3 camera_stream.py --key HorseCam2026x`, or `--test` for a moving test picture). **Never run it at the same time as horse_monitor.py.**
