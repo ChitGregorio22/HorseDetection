@@ -124,6 +124,7 @@ export function classify(temp: number, s: Settings): HealthStatus {
 
 export function photoUrl(path: string | null) {
   if (!path) return null;
+  if (path.startsWith("data:")) return path; // photo sent by the Pi (registration crop)
   return supabase.storage.from("horse-photos").getPublicUrl(path).data.publicUrl;
 }
 
@@ -296,7 +297,7 @@ export async function saveCalibration(deviceId: string, offset: number) {
 /** Calls `onChange` whenever readings, alerts or horses change. Returns an unsubscribe function. */
 export function subscribeToChanges(
   name: string,
-  tables: Array<"temperature_readings" | "alerts" | "horses">,
+  tables: Array<"temperature_readings" | "alerts" | "horses" | "registration_requests">,
   onChange: (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void,
   horseId?: string,
 ) {
@@ -308,7 +309,7 @@ export function subscribeToChanges(
         event: "*",
         schema: "public",
         table,
-        ...(horseId && table !== "horses" ? { filter: `horse_id=eq.${horseId}` } : {}),
+        ...(horseId && table !== "horses" && table !== "registration_requests" ? { filter: `horse_id=eq.${horseId}` } : {}),
       },
       (payload) => onChange(table, (payload.new ?? {}) as Record<string, unknown>, payload.eventType),
     );
@@ -471,4 +472,97 @@ export async function downloadReadingsCsv(horse: { id: string; name: string } | 
   link.remove();
   URL.revokeObjectURL(url);
   return rows.length;
+}
+
+// ---------- Registration through the Pi's stall camera ----------
+export type RegistrationStatus = "pending" | "running" | "done" | "failed" | "cancelled";
+
+export interface RegistrationProgress {
+  photos?: number;
+  needed?: number;
+  views?: Record<string, number>;
+  need_views?: Record<string, number>;
+  missing?: string;
+  note?: string;
+  horses_in_view?: number | null;
+  done?: boolean;
+}
+
+export interface RegistrationRequest {
+  id: number;
+  name: string;
+  age: number | null;
+  normal_temp: number;
+  force: boolean;
+  status: RegistrationStatus;
+  progress: RegistrationProgress;
+  message: string | null;
+  horse_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const toRequest = (r: Record<string, unknown>): RegistrationRequest => ({
+  ...(r as unknown as RegistrationRequest),
+  normal_temp: Number(r.normal_temp),
+  progress: (r.progress ?? {}) as RegistrationProgress,
+});
+
+/** The newest registration request (any status), or null. Returns undefined if update 07 isn't installed. */
+export async function getLatestRegistration(): Promise<RegistrationRequest | null | undefined> {
+  await supabase.rpc("expire_stale_registrations"); // tidy up requests the Pi never finished
+  const { data, error } = await supabase
+    .from("registration_requests")
+    .select("*")
+    .order("id", { ascending: false })
+    .limit(1);
+  if (error) {
+    if (/registration_requests|schema cache|does not exist/i.test(error.message)) return undefined;
+    throw new Error(friendlyError(error.message));
+  }
+  return data && data[0] ? toRequest(data[0] as Record<string, unknown>) : null;
+}
+
+export async function getRegistration(id: number): Promise<RegistrationRequest | null> {
+  const rows = check(await supabase.from("registration_requests").select("*").eq("id", id).limit(1)) as Record<string, unknown>[];
+  return rows[0] ? toRequest(rows[0]) : null;
+}
+
+export async function startRegistration(input: { name: string; age: number | null; normal_temp: number; force?: boolean }) {
+  const result = await supabase
+    .from("registration_requests")
+    .insert({ name: input.name.trim(), age: input.age, normal_temp: input.normal_temp, force: Boolean(input.force) })
+    .select()
+    .single();
+  if (result.error?.message.includes("registration_requests_one_active")) {
+    throw new Error("Another registration is already in progress. Wait for it to finish or cancel it.");
+  }
+  return toRequest(check(result) as Record<string, unknown>);
+}
+
+export async function cancelRegistration(id: number) {
+  check(
+    await supabase
+      .from("registration_requests")
+      .update({ status: "cancelled", message: "Cancelled on the website." })
+      .eq("id", id)
+      .in("status", ["pending", "running"]),
+  );
+}
+
+export async function getHorseBasic(id: string) {
+  const rows = check(
+    await supabase.from("horses").select("id, horse_code, name, age, normal_temp, photo_path, registered_at").eq("id", id).limit(1),
+  ) as Record<string, unknown>[];
+  const h = rows[0];
+  if (!h) return null;
+  return {
+    id: String(h.id),
+    horseCode: String(h.horse_code),
+    name: String(h.name),
+    age: h.age == null ? null : Number(h.age),
+    normalTemperature: Number(h.normal_temp),
+    photo: photoUrl((h.photo_path as string | null) ?? null) ?? "",
+    registeredAt: String(h.registered_at),
+  };
 }

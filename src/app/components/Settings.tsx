@@ -284,7 +284,11 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
       {/* Add Horse */}
       {canAddHorse && (
         <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
-          <h2 className="text-2xl mb-6">Manage Horses</h2>
+          <h2 className="text-2xl mb-2">Add a Horse Without the Camera</h2>
+          <p className="mb-6 text-lg text-gray-600">
+            Horses added here have no camera fingerprint, so the Raspberry Pi can't recognise them. Use <strong>Register</strong> for
+            horses in the stall.
+          </p>
 
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

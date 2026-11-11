@@ -4,19 +4,22 @@
 Pi Camera ─► horse_monitor.py --stream 8000 ─► Tailscale Funnel ─► https://horse-cam.<tailnet>.ts.net
   (YOLO outline, name, temperature drawn on it)                               │
                                     Website Dashboard (Vercel) ◄──────────────┘  address saved ONCE in Settings
-heartbeat.py ─────────────────────────────────────────────────► Supabase ─► header "Raspberry Pi: Online"
+horse_monitor.py --web ◄──── "Register a horse" requests ───── Supabase ◄── website Register page
+          └──── progress, new horse + photo, heartbeat ───► Supabase ──► website (live)
 ```
+
+**Registering horses now happens on the website**: the Register page shows the stall camera, you type the horse's details and press **Start registration**. horse_monitor.py takes its usual 30 fingerprint photos while you turn the horse, the website shows the progress, and at the end the Pi creates the horse on the website (with its photo and QR code). One registration: the Pi and the website always agree on which horse is which.
 
 **Only one program can use the Pi camera at a time.** `horse_monitor.py` already uses it, so the website shows **horse_monitor's own picture** (outline, horse name, temperature). You don't run `camera_stream.py` at the same time. That one is only for testing without horse_monitor.
 
 **Tailscale Funnel:** the Pi makes an *outgoing* connection to Tailscale, and Tailscale gives it a permanent `https://` address. **No pfSense, no router or port-forwarding changes, no public IP.** It works behind any Wi-Fi or mobile hotspot. Free, and the address never changes.
 
-Files used on the Pi (all in this `raspi/` folder): `web_stream.py`, `add_streaming.py`, `heartbeat.py`, and `camera_stream.py` (testing only).
+Files used on the Pi (all in this `raspi/` folder), copied **next to horse_monitor.py**: `web_stream.py`, `add_streaming.py`, `web_link.py`, `add_web_link.py`. (`heartbeat.py` and `camera_stream.py` are only needed without horse_monitor.)
 
 ---
 
 ## Step 0: Database (once, in Supabase → SQL Editor)
-Run `supabase/03_live_camera.sql`, then `04_device_status.sql`, if you haven't already.
+Run `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`, `06_signup_role.sql` (if not done yet), then **`07_remote_registration.sql`**.
 
 ## Step 1: Add live streaming to horse_monitor.py (once)
 1. Copy **`web_stream.py`** and **`add_streaming.py`** into the **same folder as `horse_monitor.py`** on the Pi.
@@ -32,6 +35,40 @@ Run `supabase/03_live_camera.sql`, then `04_device_status.sql`, if you haven't a
 4. On a phone or laptop **on the same Wi-Fi**, open `http://<pi-ip>:8000` (find the IP with `hostname -I`). You should see the same picture as the monitor window, outlines and names included. ✅
 
 All the old options and hotkeys still work. `--stream` only adds the website picture. The picture updates at the speed horse_monitor runs (about 2 per second with YOLO), and it's exactly what the system sees.
+
+## Step 1b: Connect horse_monitor.py to the website (once)
+1. **Register the Pi as a device** in Supabase → SQL Editor (skip if you already have one):
+   ```sql
+   insert into public.devices (name, location)
+   values ('Stall Pi', 'Vv Neri Livestock Farm – stall 1')
+   returning device_key;
+   ```
+   Copy the `device_key`.
+2. **Create `web.env`** next to horse_monitor.py (this file stays on the Pi, never upload it to GitHub):
+   ```bash
+   nano web.env
+   ```
+   ```
+   SUPABASE_URL=https://pjqocndvsdkpeuzjjxdz.supabase.co
+   SUPABASE_KEY=sb_publishable_YOUR_KEY
+   DEVICE_KEY=PASTE_DEVICE_KEY
+   ```
+3. **Add `--web` to horse_monitor.py and test the connection:**
+   ```bash
+   python3 add_web_link.py horse_monitor.py
+   python3 web_link.py --test
+   ```
+   You should see `✓ Connected` and `✓ Remote registration is installed`.
+4. **Horses you already registered on the Pi** (with `r`, e.g. Jafar and Brongco): put them on the website once:
+   ```bash
+   python3 web_link.py --push-existing
+   ```
+   Then set their age and normal temperature on the website (**Horses → Edit**).
+5. **Run it** (window + website):
+   ```bash
+   python3 horse_monitor.py --thermal --dht --web --stream 8000 --stream-key HorseCam2026x
+   ```
+   On the website: **Register** → type the name → **Start registration** → turn the horse. The window on the Pi shows the same registration.
 
 ## Step 2: Install Tailscale on the Pi (once)
 1. Create a free account at **tailscale.com**, ideally with a shared group email so it doesn't depend on one member.
@@ -89,7 +126,7 @@ For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`
 
    [Service]
    WorkingDirectory=/home/pi/horse
-   ExecStart=/home/pi/horse/venv/bin/python3 horse_monitor.py --thermal --dht --no-show --stream 8000 --stream-key HorseCam2026x
+   ExecStart=/home/pi/horse/venv/bin/python3 horse_monitor.py --thermal --dht --no-show --web --stream 8000 --stream-key HorseCam2026x
    Restart=always
    RestartSec=10
    User=pi
@@ -105,14 +142,17 @@ For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`
    journalctl -u horse-monitor -f        # live log (Ctrl + C to stop watching)
    ```
 
-**Registering a horse or taking calibration readings** (`r`, `a`, `k` need the window): stop the service, run it by hand with the window, then start the service again:
+**Registering a horse** works from the website while the service runs (no window needed).
+**Calibration readings** (`k`) still need the window: stop the service, run by hand, start it again:
 ```bash
 sudo systemctl stop horse-monitor
-python3 horse_monitor.py --thermal --dht --stream 8000 --stream-key HorseCam2026x   # window + website
+python3 horse_monitor.py --thermal --dht --web --stream 8000 --stream-key HorseCam2026x
 sudo systemctl start horse-monitor
 ```
 
 ## Step 6: Connection indicator ("Raspberry Pi: Online")
+**With `--web` you can skip this step**: horse_monitor.py sends the heartbeat itself (camera, thermal, DHT22, CPU temperature). The separate `heartbeat.py` service is only useful if you want "Online" while horse_monitor is stopped. Don't run both.
+
 1. Register the Pi as a device (once). In Supabase **SQL Editor**:
    ```sql
    insert into public.devices (name, location)
@@ -174,6 +214,10 @@ Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The hea
 | Header **Raspberry Pi: Offline** | `journalctl -u horse-heartbeat -n 20`. *Unknown or inactive device* = wrong DEVICE_KEY; *cannot reach Supabase* = no internet. |
 | Header **Not set up** | Run `supabase/04_device_status.sql`. |
 | See horse_monitor errors | `journalctl -u horse-monitor -n 50` |
+| Register page stays on **Waiting for the Pi…** | horse_monitor.py isn't running with `--web`, or `web.env` is wrong. Run `python3 web_link.py --test`. |
+| Register page: "isn't installed in the database" | Run `supabase/07_remote_registration.sql`. |
+| "looks like X, not saved" | The new horse's photos match an already registered horse. If it really is a different horse, press **Register anyway**. |
+| `Could not find this line` from add_web_link.py | Your horse_monitor.py is a different version. Send the error to Claude. |
 | Video slow / laggy | Add `--stream-fps 4` to the service command. |
 
 ### Testing without horse_monitor (optional)

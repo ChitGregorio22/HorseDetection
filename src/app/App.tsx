@@ -97,10 +97,13 @@ export default function App() {
     return subscribeToChanges("app", ["temperature_readings", "alerts", "horses"], () => refreshHorses());
   }, [session, approved, refreshHorses, refreshSettings]);
 
-  const handleRegisteredHorse = async (horse: HorseRecord) => {
-    await refreshHorses();
-    setSelectedHorseId(horse.id);
-  };
+  const handleRegisteredHorse = useCallback(
+    async (horse: { id: string }) => {
+      await refreshHorses();
+      setSelectedHorseId(horse.id);
+    },
+    [refreshHorses],
+  );
 
   if (!isSupabaseConfigured) {
     return (
@@ -270,6 +273,8 @@ export default function App() {
         )}
         {view === "register" && (
           <Register
+            settings={settings}
+            devices={deviceStatus.devices}
             onRegistered={handleRegisteredHorse}
             onViewDashboard={() => setCurrentView("dashboard")}
           />
