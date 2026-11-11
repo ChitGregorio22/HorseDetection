@@ -100,6 +100,24 @@ export function QrPlate({ name, code, compact = false }: { name: string; code: s
   };
 
   const s = plateSize(size);
+  if (compact) {
+    return (
+      <div className="flex flex-col items-center text-center">
+        {png && (
+          <img src={png} alt={`QR code ${plateText(code)} for ${name}`} className="h-28 w-28 bg-white [image-rendering:pixelated]" />
+        )}
+        <div className="mt-1 font-mono text-sm">{plateText(code)}</div>
+        <button
+          type="button"
+          onClick={print}
+          className="mt-2 flex min-h-10 items-center gap-1.5 rounded-lg border-2 border-green-600 bg-white px-3 text-base font-semibold text-green-700 hover:bg-green-50"
+        >
+          <Printer className="h-4 w-4" /> Print QR plate
+        </button>
+        {error && <p className="mt-1 text-sm text-red-700">{error}</p>}
+      </div>
+    );
+  }
   return (
     <div className={`flex flex-col items-center text-center ${compact ? '' : 'w-full'}`}>
       <div className="mb-3 flex items-center gap-2 text-green-800">

@@ -346,7 +346,7 @@ export async function saveCalibration(deviceId: string, offset: number) {
 /** Calls `onChange` whenever readings, alerts or horses change. Returns an unsubscribe function. */
 export function subscribeToChanges(
   name: string,
-  tables: Array<"temperature_readings" | "alerts" | "horses" | "registration_requests" | "live_view">,
+  tables: Array<"temperature_readings" | "alerts" | "horses" | "registration_requests" | "live_view" | "photo_requests">,
   onChange: (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void,
   horseId?: string,
 ) {
@@ -695,4 +695,86 @@ export async function getLatestPiReading(): Promise<{ id: number; horse_id: stri
   if (error) return null;
   const r = (data ?? [])[0] as { id: number; horse_id: string; recorded_at: string } | undefined;
   return r ? { id: Number(r.id), horse_id: r.horse_id, recorded_at: r.recorded_at } : null;
+}
+
+// ---------- Profile photos (supabase/10_profile_photos.sql) ----------
+export interface HorsePhoto {
+  id: number;
+  thumb: string | null;
+  source: "registration" | "website" | "pi_key";
+  view: string | null;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+}
+
+/** All saved pictures of a horse (small thumbnails only) + which one is the profile photo.
+ *  undefined = 10_profile_photos.sql isn't installed yet. */
+export async function getHorsePhotos(horseId: string): Promise<{ photos: HorsePhoto[]; profileId: number | null } | undefined> {
+  const { data, error } = await supabase
+    .from("horse_photos")
+    .select("id, thumb, source, view, width, height, created_at")
+    .eq("horse_id", horseId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (/horse_photos|schema cache|does not exist/i.test(error.message)) return undefined;
+    throw new Error(friendlyError(error.message));
+  }
+  const h = await supabase.from("horses").select("profile_photo_id").eq("id", horseId).maybeSingle();
+  const profileId = h.data ? ((h.data as { profile_photo_id: number | null }).profile_photo_id ?? null) : null;
+  return { photos: (data ?? []) as HorsePhoto[], profileId: profileId == null ? null : Number(profileId) };
+}
+
+const photoCache = new Map<number, string>();
+/** The full-size picture (about 1280 px), loaded only when shown. */
+export async function getHorsePhotoImage(id: number): Promise<string | null> {
+  if (photoCache.has(id)) return photoCache.get(id) as string;
+  const { data, error } = await supabase.from("horse_photos").select("image").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  const image = (data as { image: string }).image;
+  photoCache.set(id, image);
+  return image;
+}
+
+export async function setProfilePhoto(horseId: string, photoId: number) {
+  const { error } = await supabase.rpc("set_profile_photo", { p_horse_id: horseId, p_photo_id: photoId });
+  if (error) throw new Error(friendlyError(error.message));
+}
+
+export interface PhotoRequest {
+  id: number;
+  horse_id: string;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  message: string | null;
+  photo_id: number | null;
+}
+
+/** "Take profile photo": the Pi takes it when this horse is the confirmed horse in the stall. */
+export async function requestProfilePhoto(horseId: string): Promise<PhotoRequest> {
+  const { data, error } = await supabase
+    .from("photo_requests")
+    .insert({ horse_id: horseId })
+    .select("id, horse_id, status, message, photo_id")
+    .single();
+  if (error) {
+    if (/photo_requests|schema cache|does not exist/i.test(error.message)) {
+      throw new Error("Taking photos from the website needs the database update 10_profile_photos.sql.");
+    }
+    throw new Error(friendlyError(error.message));
+  }
+  return data as PhotoRequest;
+}
+
+export async function getPhotoRequest(id: number): Promise<PhotoRequest | null> {
+  await supabase.rpc("expire_photo_requests");
+  const { data } = await supabase
+    .from("photo_requests")
+    .select("id, horse_id, status, message, photo_id")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as PhotoRequest) ?? null;
+}
+
+export async function cancelPhotoRequest(id: number) {
+  await supabase.from("photo_requests").update({ status: "cancelled" }).eq("id", id).in("status", ["pending", "running"]);
 }

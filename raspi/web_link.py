@@ -15,6 +15,9 @@ With  python3 thesisv2.py --web ...  (or horse_monitor.py) the monitor:
     lost when the internet drops or the Pi restarts. A retried reading is never stored twice.
     (Older scripts without queue_reading(): web_link makes one reading per identified horse per
     minute itself.) Unidentified / uncertain horses are never uploaded under a name,
+  * profile photos: at the end of a registration, up to 6 whole-camera pictures (photo_options) go to
+    the website (about 1280 px JPEG, one per call, table horse_photos: supabase/10_profile_photos.sql);
+    "Take profile photo" on the website → take_photo_request() / send_profile_photo() (also the p key),
   * reports a heartbeat every 30 s ("Raspberry Pi: Online" + camera / thermal / DHT22 status).
 
 thesisv2.py already has --web built in (don't run add_web_link.py on it). For older scripts,
@@ -48,6 +51,8 @@ UPLOAD_SEC = 60.0       # older scripts only: one reading per identified horse p
 MIN_SAMPLES = 5         # older scripts only: a minute needs at least this many temperature samples
 PENDING_FILE = Path(__file__).with_name("pending_readings.jsonl")    # unsent readings (survive restarts)
 REJECTED_FILE = Path(__file__).with_name("rejected_readings.jsonl")  # readings the website refused, with why
+PHOTO_PX = 1280         # profile pictures: long side, JPEG quality 80 (~150-300 KB)
+THUMB_PX = 400          # card thumbnail kept on the horse
 PENDING_MAX = 50000     # ~35 days of one horse at 1/min; beyond that the oldest are dropped
 
 
@@ -80,6 +85,10 @@ class WebLink:
         self.progress_latest = None       # (id, progress, message) not sent yet
         self.cancelled_ids = set()
         self.jobs = queue.Queue()         # finish / fail messages to send
+        self.photo_jobs = queue.Queue()   # pictures to upload (own thread: big, can be slow)
+        self.photo_inbox = None           # "Take profile photo" request waiting for the main loop
+        self._photo_wanted_t = 0.0        # last time the script asked take_photo_request()
+        self._photo_off_until = 0.0       # 10_profile_photos.sql missing: don't ask for a while
         self.results = queue.Queue()      # (local name, horse_code) to save in horses.db (main thread)
         self.status = {"app": "horse_monitor.py --web", "monitor": True}
         self.online = None
@@ -99,6 +108,7 @@ class WebLink:
                 db.commit()
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._reading_loop, daemon=True).start()
+        threading.Thread(target=self._photo_loop, daemon=True).start()
         print(f"Web link: {self.url} (registrations from the website, heartbeat every {HEARTBEAT_SEC:.0f} s)")
 
     @classmethod
@@ -165,6 +175,7 @@ class WebLink:
                                 self._warned_live = True
                         else:
                             raise
+                self._poll_photo_request()
                 if time.time() - self.last_beat >= HEARTBEAT_SEC:
                     with self.lock:
                         status = dict(self.status)
@@ -184,11 +195,17 @@ class WebLink:
                 return
             try:
                 if job["kind"] == "done":
+                    if "photo" not in job:                      # encode here, not in the camera loop
+                        job["photo"] = to_data_url(job.get("photo_img"), THUMB_PX, 75)
                     res = self.rpc("device_register_horse", p_device_key=self.device_key, p_name=job["name"],
                                    p_age=job.get("age"), p_normal_temp=job.get("normal_temp"),
                                    p_photo=job.get("photo"), p_request_id=job.get("id"), p_photos=job.get("photos"))
-                    self.results.put((job["local_name"], res["horse_code"]))
-                    print(time.strftime("%H:%M:%S"), f"Web link: {job['name']} is on the website as {res['horse_code']}")
+                    code = res["horse_code"]
+                    self.results.put((job["local_name"], code))
+                    print(time.strftime("%H:%M:%S"), f"Web link: {job['name']} is on the website as {code}")
+                    for k, (img, is_profile) in enumerate(job.get("pictures", [])):   # profile photo choices
+                        self.photo_jobs.put({"horse_code": code, "img": img, "source": "registration",
+                                             "make_profile": is_profile, "label": f"{job['name']} photo {k + 1}"})
                 else:
                     self.rpc("device_update_registration", p_device_key=self.device_key, p_id=job["id"],
                              p_status=job["kind"], p_progress=job.get("progress"), p_message=job["message"])
@@ -461,11 +478,116 @@ class WebLink:
         with self.lock:
             return rid in self.cancelled_ids
 
-    def finish_success(self, req, local_name, crop_bgr, photos):
+    def finish_success(self, req, local_name, photo, photos, photo_options=None):
+        """Registration saved on the Pi: create the horse on the website. photo = default profile photo,
+        photo_options = up to 6 whole-camera pictures (BGR) to choose from on the website. Never blocks:
+        the pictures are copied here and encoded/uploaded by the background threads."""
+        options = [o for o in (photo_options or []) if o is not None][:6]
+        pictures = []                                   # (image, is the profile photo)
+        prof = None
+        if photo is not None:
+            for o in options:                           # is the default photo one of the options?
+                if o is photo or (o.shape == photo.shape and (o == photo).all()):
+                    prof = o
+                    break
+        for o in options:
+            pictures.append((o.copy(), o is prof))
+        if photo is not None and prof is None and options:
+            pictures.insert(0, (photo.copy(), True))    # its own picture, shown first
+        elif pictures and photo is None:
+            pictures[0] = (pictures[0][0], True)
+        thumb_src = photo if photo is not None else (pictures[0][0] if pictures else None)
         self.jobs.put({"kind": "done", "id": req["id"], "name": req["name"], "local_name": local_name,
                        "age": req.get("age"), "normal_temp": req.get("normal_temp"),
-                       "photo": to_data_url(crop_bgr), "photos": photos})
+                       "photo_img": None if thumb_src is None else thumb_src.copy(), "photos": photos,
+                       "pictures": pictures})
         self._release()
+
+    # ------------------------------------------------------------ profile photos
+    def take_photo_request(self):
+        """Main loop, every frame: a "Take profile photo" request from the website → {"id", "horse_code"} or None.
+        Only scripts that call this get requests (older scripts never take them)."""
+        self._photo_wanted_t = time.time()
+        with self.lock:
+            req, self.photo_inbox = self.photo_inbox, None
+        return req
+
+    def send_profile_photo(self, request_id, horse_code, img, error=None):
+        """Answer a request (or the p key, request_id None): img = whole camera picture (BGR) → new profile photo;
+        or error = why not (e.g. "Jafar is not the confirmed horse in the stall right now")."""
+        if img is None or error:
+            msg = error or "The Pi could not take the photo."
+            print(time.strftime("%H:%M:%S"), f"Web link: no profile photo for {horse_code}: {msg}")
+            if request_id is not None:
+                self.photo_jobs.put({"fail": True, "request_id": request_id, "message": msg})
+            return
+        self.photo_jobs.put({"horse_code": horse_code, "img": img.copy(), "make_profile": True,
+                             "source": "website" if request_id is not None else "pi_key",
+                             "request_id": request_id, "label": f"profile photo of {horse_code}"})
+
+    def _poll_photo_request(self):
+        now_t = time.time()
+        if now_t - self._photo_wanted_t > 10 or now_t < self._photo_off_until:
+            return
+        with self.lock:
+            if self.photo_inbox is not None:
+                return
+        try:
+            req = self.rpc("device_take_photo_request", p_device_key=self.device_key)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:                           # 10_profile_photos.sql not run yet
+                if self._photo_off_until == 0.0:
+                    print("Web link: profile photos need supabase/10_profile_photos.sql (skipping them for now)")
+                self._photo_off_until = now_t + 300
+                return
+            raise
+        if req:
+            with self.lock:
+                self.photo_inbox = req
+
+    def _photo_loop(self):
+        while True:
+            job = self.photo_jobs.get()
+            delay = 5.0
+            while True:
+                try:
+                    if job.get("fail"):
+                        self.rpc("device_fail_photo_request", p_device_key=self.device_key,
+                                 p_id=job["request_id"], p_message=job["message"])
+                    else:
+                        if "image" not in job:          # encode once, keep it for retries
+                            img = job.pop("img")
+                            job["image"] = to_data_url(img, PHOTO_PX, 80)
+                            job["thumb"] = to_data_url(img, THUMB_PX, 75)
+                            h, w = img.shape[:2]
+                            sc = min(1.0, PHOTO_PX / max(h, w))
+                            job["w"], job["h"] = int(w * sc), int(h * sc)
+                        self.rpc("device_add_horse_photo", p_device_key=self.device_key, p_horse_code=job["horse_code"],
+                                 p_image=job["image"], p_thumb=job["thumb"], p_source=job.get("source", "registration"),
+                                 p_width=job["w"], p_height=job["h"], p_make_profile=bool(job.get("make_profile")),
+                                 p_request_id=job.get("request_id"))
+                        print(time.strftime("%H:%M:%S"), f"Web link: sent {job.get('label', 'photo')} "
+                              f"({len(job['image']) // 1024} KB)")
+                    break
+                except urllib.error.HTTPError as e:
+                    text = e.read().decode(errors="replace")
+                    try:
+                        sqlstate = str(json.loads(text).get("code", ""))
+                    except ValueError:
+                        sqlstate = ""
+                    if e.code == 404 and "PGRST202" in text:   # 10_profile_photos.sql not run: the thumbnail stays
+                        print("Web link: profile photos need supabase/10_profile_photos.sql - photo not sent")
+                        break
+                    if sqlstate == "P0002" or sqlstate[:2] in ("22", "23"):
+                        print(time.strftime("%H:%M:%S"), f"Web link: website refused {job.get('label', 'photo')}: {text[:160]}")
+                        if job.get("request_id") is not None and not job.get("fail"):
+                            job = {"fail": True, "request_id": job["request_id"], "message": "The website refused the photo."}
+                            continue
+                        break
+                except Exception:
+                    pass
+                time.sleep(delay)                       # offline: try again, slower and slower
+                delay = min(60.0, delay * 2)
 
     def finish_failed(self, rid, message, kind="failed"):
         self.jobs.put({"kind": kind, "id": rid, "message": message})
@@ -489,7 +611,7 @@ class WebLink:
 
 
 def to_data_url(bgr, size=320, quality=85):
-    """Crop (BGR image) → small JPEG 'data:image/jpeg;base64,…' for the website's horse photo."""
+    """BGR image → JPEG 'data:image/jpeg;base64,…', longest side at most `size` px."""
     if bgr is None:
         return None
     import cv2

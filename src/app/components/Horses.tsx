@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, ArchiveRestore, Calendar, Pencil, Plus, Thermometer, Trash2, UserMinus } from "lucide-react";
 import { QrPlate } from "./QrPlate";
+import { ProfilePhotos } from "./ProfilePhotos";
 import { fmtHumidity, fmtTemp, fmtWhen, MethodBadge, RecentReadingsTable, useRecentReadings } from "./ReadingBits";
 import type { HorseRecord } from "../App";
 import {
@@ -161,6 +162,16 @@ export function Horses({
             {can.manageHorses && <HorseActions key={currentHorse.id} horse={currentHorse} onChanged={onChanged} />}
           </div>
           {can.manageHorses && <EditHorseForm key={`edit-${currentHorse.id}`} horse={currentHorse} onChanged={onChanged} />}
+
+          <ProfilePhotos
+            key={`photos-${currentHorse.id}`}
+            horseId={currentHorse.id}
+            horseName={currentHorse.name}
+            fallback={currentHorse.photo}
+            canManage={can.manageHorses}
+            cameraUrl={settings.camera_stream_url}
+            onChanged={onChanged}
+          />
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="space-y-4">

@@ -5,6 +5,7 @@ import type { HorseRecord } from '../App';
 import { LiveCamera } from './LiveCamera';
 import { classify, getRecentReadings, subscribeToChanges, timeAgo, type DeviceStatus, type LiveHorse, type Reading, type Settings } from '../lib/api';
 import { fmtHumidity, fmtTemp, fmtWhen, MethodBadge } from './ReadingBits';
+import { QrPlate } from './QrPlate';
 import type { useLiveView } from './useLiveView';
 
 interface DashboardProps {
@@ -235,7 +236,9 @@ export function Dashboard({
             When the camera identifies {horse.name}, the Pi stores one reading per minute. The trend and history appear
             here automatically.
           </p>
-          <p className="mt-4 rounded-lg bg-white px-4 py-2 font-mono text-xl text-green-800">{horse.horseCode}</p>
+          <div className="mt-4 rounded-xl bg-white p-3">
+            <QrPlate name={horse.name} code={horse.horseCode} compact />
+          </div>
         </div>
       </div>
     );
@@ -283,7 +286,8 @@ export function Dashboard({
             <MethodBadge method={latest ? latest.id_method : horse.idMethod} manual={latest ? !latest.device_id : false} />
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="grid flex-1 grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
             <div className="text-lg text-gray-600">Body</div>
             <div className={`text-4xl tabular-nums ${status.color}`}>{currentTemp.toFixed(1)}°C</div>
@@ -301,6 +305,10 @@ export function Dashboard({
             <div className="text-lg text-gray-600">Humidity</div>
             <div className="text-3xl tabular-nums text-cyan-700">{fmtHumidity(latest ? latest.humidity : horse.humidity)}</div>
           </div>
+        </div>
+        <div className="shrink-0 self-center rounded-xl bg-white p-3">
+          <QrPlate name={horse.name} code={horse.horseCode} compact />
+        </div>
         </div>
       </div>
 

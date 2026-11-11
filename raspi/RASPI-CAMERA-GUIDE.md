@@ -14,7 +14,7 @@ thesisv2.py --web ◄──── "Register a horse" requests ───── Su
 **don't run `add_streaming.py` or `add_web_link.py` on it** (they refuse anyway). Those two patchers are only
 for older scripts such as horse_monitor.py.
 
-**Camera options aren't needed**: thesisv2.py reads them from `thermal_calib.json` (saved by `sync_camera_thermal.py`).
+**Camera options aren't needed**: flip, camera mode and HDR come from `thermal_calib.json` (saved by `sync_camera_thermal.py`).
 
 **thesisv2_backup.py** is the copy for testing and for calibration readings (key **k**: rectal thermometer).
 
@@ -32,6 +32,13 @@ never adds the old calibration offset to these readings (Settings shows it as *n
 humidity** (DHT22, live). Below: the latest stored reading (body, coat, air, humidity, time, *via QR*), trend chart.
 With **Follow the camera** ticked, the Dashboard switches to each horse as its reading arrives.
 
+**Profile photos**: at the end of a website registration the Pi sends up to 6 whole-camera pictures of the horse
+(about 1280 px). On **Horses → profile**, the photo is shown large and uncropped; owners/admins use **Change photo** to
+pick another, or **Take profile photo** while watching the live camera on the same page, when the horse faces the
+camera. The Pi takes it only if that horse is the confirmed horse in the stall, otherwise the website shows why.
+At the Pi, the **p** key takes a new profile photo of the confirmed horse. Pictures are stored in the database table
+`horse_photos` (the Pi only has the public key, so it can't write to Storage safely); cards use a small thumbnail.
+
 **Tailscale Funnel:** the Pi makes an *outgoing* connection to Tailscale, and Tailscale gives it a permanent `https://` address. **No pfSense, no router or port-forwarding changes, no public IP.** Free, and the address never changes.
 
 **Only one program can use the Pi camera at a time.** Don't run thesisv2.py and thesisv2_backup.py (or camera_stream.py) together.
@@ -42,8 +49,8 @@ Files next to **thesisv2.py** on the Pi: **`web_stream.py`**, **`web_link.py`**,
 
 ## Step 0: Database (once, in Supabase → SQL Editor)
 Run, in order, the ones not done yet: `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`,
-`06_signup_role.sql`, `07_remote_registration.sql`, `08_live_view.sql`, then **`09_pi_readings.sql`** (readings
-from thesisv2.py). Each is safe to run again. **Never** run 00_reset, 01_schema or 02_seed again.
+`06_signup_role.sql`, `07_remote_registration.sql`, `08_live_view.sql`, **`09_pi_readings.sql`** (readings
+from thesisv2.py), then **`10_profile_photos.sql`** (profile photos). Each is safe to run again. **Never** run 00_reset, 01_schema or 02_seed again.
 
 ## Step 1: Connect thesisv2.py to the website (once)
 1. **Register the Pi as a device** in Supabase → SQL Editor (skip if you already have one):
@@ -88,7 +95,14 @@ and plate (25 cm ≈ 2.3 m).
 - **On the website**: Register (after a registration) or **Horses → profile → Print QR plate**. Choose the size, print
   at **100% / Actual size** (not "Fit to page"). A 25 cm QR with its white border is 35.5 × 42.5 cm (A2): use
   *Save as PDF* and print it at a print shop, or pick 20 cm (A3) / 13 cm (A4).
+- The Dashboard's reading card and the horse profile always show the horse's QR with **Print QR plate**.
 - Hang it on the stall the horse is in, facing the camera. Move it with the horse.
+
+## Keys in the thesisv2.py window
+| Key | What it does |
+|---|---|
+| **p** | New profile photo of the confirmed horse (sent to the website, becomes its profile photo) |
+| **k** | Calibration reading with the rectal thermometer: use **thesisv2_backup.py** |
 
 ## Step 2: Install Tailscale on the Pi (once)
 1. Create a free account at **tailscale.com**, ideally with a shared group email so it doesn't depend on one member.
@@ -230,6 +244,8 @@ Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The hea
 | No new readings on the website | `python3 web_link.py --test`. If it lists readings waiting in `pending_readings.jsonl`, they are sent once thesisv2.py --web runs with internet. *Reading upload isn't installed* → run `09_pi_readings.sql`. |
 | Log: *readings wait for supabase/09_pi_readings.sql* | Run `09_pi_readings.sql`. Nothing is lost: the readings wait in `pending_readings.jsonl`. |
 | Log: *the website doesn't know HTM-…* | That horse was deleted on the website. Its readings stay in horses.db and `rejected_readings.jsonl`. |
+| Profile photo: "Not taken: … is not the confirmed horse in the stall right now" | Wait until the Pi has confirmed that horse (its name on the camera picture), then press Take photo now again. |
+| Profile photo: "The Pi didn't answer" | thesisv2.py isn't running with `--web`, or `10_profile_photos.sql` wasn't run (the Pi log says so). |
 | `already has the website link built in` | You ran add_web_link.py on the new thesisv2.py. Nothing was changed; it doesn't need it. |
 | **Can't be shown here (http://)** | You pasted the local `http://` address. Use the `https://…ts.net` address. |
 | Page says *Wrong or missing ?key=* | The key in the website address doesn't match `--stream-key`. |
