@@ -39,6 +39,9 @@ def web_tick():
 
 '''.splitlines()
 
+if "queue_reading" in src or ("add_argument(\"--web\"" in src and "website link (--web)" not in src):
+    raise SystemExit(f"{path} already has the website link built in (new thesisv2.py). Don't patch it: "
+                     f"just keep web_link.py, web_stream.py and web.env next to it.")
 if "web.tick(globals())" in src:
     raise SystemExit(f"{path} already has the newest --web. Nothing to do.")
 lines = src.splitlines()

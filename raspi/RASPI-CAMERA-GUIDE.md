@@ -1,60 +1,51 @@
-# Raspberry Pi → Website: live camera (Tailscale Funnel) + connection indicator
+# Raspberry Pi → Website: thesisv2.py, live camera (Tailscale Funnel), readings
 
 ```
-Pi Camera ─► horse_monitor.py --stream 8000 ─► Tailscale Funnel ─► https://horse-cam.<tailnet>.ts.net
-  (YOLO outline, name, temperature drawn on it)                               │
-                                    Website Dashboard (Vercel) ◄──────────────┘  address saved ONCE in Settings
-horse_monitor.py --web ◄──── "Register a horse" requests ───── Supabase ◄── website Register page
-          ├──── progress, new horse + photo, heartbeat ───► Supabase ──► website (live)
-          └──── every 2 s: which horse is in view + temp, air temp, humidity ──► Dashboard follows it
-                every 1 min: one stored reading per IDENTIFIED horse ──► History, trend, fever alerts
+Pi Camera ─► thesisv2.py --stream 8000 ─► Tailscale Funnel ─► https://horse-cam.<tailnet>.ts.net
+  (YOLO outline, name, temperature drawn on it)                         │
+                              Website Dashboard (Vercel) ◄──────────────┘  address saved ONCE in Settings
+thesisv2.py --web ◄──── "Register a horse" requests ───── Supabase ◄── website Register page
+       ├──── progress, new horse + photo, heartbeat (air temp + humidity every 30 s) ──► Supabase ──► website
+       └──── web.queue_reading(): one reading per CONFIRMED horse per minute ──► History, trend, fever alerts
+             (final body temp, coat temp, air temp, humidity, fingerprint or QR plate)
 ```
 
-> Everything here works the same for **thesisv2.py**: just use `thesisv2.py` wherever this guide says `horse_monitor.py`.
+**thesisv2.py is the final program.** `--stream` (website picture) and `--web` (website link) are **built in**:
+**don't run `add_streaming.py` or `add_web_link.py` on it** (they refuse anyway). Those two patchers are only
+for older scripts such as horse_monitor.py.
 
-**Dashboard follows the camera**: when the Pi identifies a horse (e.g. Brongco), the Dashboard switches to Brongco by itself and shows its live temperature, the air temperature and the humidity next to the camera. Unknown or not-yet-identified horses are shown as *Unknown horse* / *Identifying…* and are **never** stored under a name. Untick **Follow the camera** on the Dashboard to stay on one horse.
+**Camera options aren't needed**: thesisv2.py reads them from `thermal_calib.json` (saved by `sync_camera_thermal.py`).
 
-**Registering horses now happens on the website**: the Register page shows the stall camera, you type the horse's details and press **Start registration**. horse_monitor.py takes its usual 30 fingerprint photos while you turn the horse, the website shows the progress, and at the end the Pi creates the horse on the website (with its photo and QR code). One registration: the Pi and the website always agree on which horse is which.
+**thesisv2_backup.py** is the copy for testing and for calibration readings (key **k**: rectal thermometer).
 
-**Only one program can use the Pi camera at a time.** `horse_monitor.py` already uses it, so the website shows **horse_monitor's own picture** (outline, horse name, temperature). You don't run `camera_stream.py` at the same time. That one is only for testing without horse_monitor.
+**Readings**: after a horse is confirmed (fingerprint or the stall's QR plate), thesisv2.py stores a reading in
+horses.db and hands it to `web_link.py` (`web.queue_reading`). That never slows the camera: a background thread sends
+it with `device_submit_reading`. Unsent readings are kept in **`pending_readings.jsonl`** (next to web_link.py) and go
+out when the internet is back, even after a restart. A reading retried after a network error is stored **once**.
+Readings for a horse the website doesn't know (deleted there) go to `rejected_readings.jsonl` instead.
+Uncertain horses are never sent.
 
-**Tailscale Funnel:** the Pi makes an *outgoing* connection to Tailscale, and Tailscale gives it a permanent `https://` address. **No pfSense, no router or port-forwarding changes, no public IP.** It works behind any Wi-Fi or mobile hotspot. Free, and the address never changes.
+**Body temperature is final on the Pi** (surface + offset + DHT22 correction from `compensation.json`). The website
+never adds the old calibration offset to these readings (Settings shows it as *not used for Pi readings*).
 
-Files used on the Pi (all in this `raspi/` folder), copied **next to horse_monitor.py**: `web_stream.py`, `add_streaming.py`, `web_link.py`, `add_web_link.py`. (`heartbeat.py` and `camera_stream.py` are only needed without horse_monitor.)
+**Dashboard**: camera on the left; on the right the horse in the stall, its temperature, and the **air temperature and
+humidity** (DHT22, live). Below: the latest stored reading (body, coat, air, humidity, time, *via QR*), trend chart.
+With **Follow the camera** ticked, the Dashboard switches to each horse as its reading arrives.
+
+**Tailscale Funnel:** the Pi makes an *outgoing* connection to Tailscale, and Tailscale gives it a permanent `https://` address. **No pfSense, no router or port-forwarding changes, no public IP.** Free, and the address never changes.
+
+**Only one program can use the Pi camera at a time.** Don't run thesisv2.py and thesisv2_backup.py (or camera_stream.py) together.
+
+Files next to **thesisv2.py** on the Pi: **`web_stream.py`**, **`web_link.py`**, **`web.env`** (copied as they are).
 
 ---
 
 ## Step 0: Database (once, in Supabase → SQL Editor)
-Run `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`, `06_signup_role.sql` (if not done yet), **`07_remote_registration.sql`**, then **`08_live_view.sql`** (Dashboard follows the camera).
+Run, in order, the ones not done yet: `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`,
+`06_signup_role.sql`, `07_remote_registration.sql`, `08_live_view.sql`, then **`09_pi_readings.sql`** (readings
+from thesisv2.py). Each is safe to run again. **Never** run 00_reset, 01_schema or 02_seed again.
 
-## Updating from an older web_link.py (already patched before)
-1. Run `08_live_view.sql` in Supabase → SQL Editor.
-2. Copy the new **`web_link.py`** and **`add_web_link.py`** over the old ones on the Pi.
-3. Upgrade the script once (it keeps a backup `…bak-before-web-v2`):
-   ```bash
-   python3 add_web_link.py thesisv2.py
-   ```
-   It prints `Upgraded: … now sends the live view + readings`. Running it again says `Nothing to do`.
-4. Restart the monitor (`sudo systemctl restart horse-monitor`, or stop and start it by hand).
-
-From now on, a newer `web_link.py` only needs to be copied over. The script doesn't need patching again.
-
-## Step 1: Add live streaming to horse_monitor.py (once)
-1. Copy **`web_stream.py`** and **`add_streaming.py`** into the **same folder as `horse_monitor.py`** on the Pi.
-2. In that folder:
-   ```bash
-   python3 add_streaming.py horse_monitor.py
-   ```
-   It prints `Done: horse_monitor.py now has --stream` and keeps a backup (`horse_monitor.py.bak-before-stream`).
-3. Pick a secret stream key (letters and numbers, e.g. `HorseCam2026x`) and test it **with the window**:
-   ```bash
-   python3 horse_monitor.py --thermal --dht --stream 8000 --stream-key HorseCam2026x
-   ```
-4. On a phone or laptop **on the same Wi-Fi**, open `http://<pi-ip>:8000` (find the IP with `hostname -I`). You should see the same picture as the monitor window, outlines and names included. ✅
-
-All the old options and hotkeys still work. `--stream` only adds the website picture. The picture updates at the speed horse_monitor runs (about 2 per second with YOLO), and it's exactly what the system sees.
-
-## Step 1b: Connect horse_monitor.py to the website (once)
+## Step 1: Connect thesisv2.py to the website (once)
 1. **Register the Pi as a device** in Supabase → SQL Editor (skip if you already have one):
    ```sql
    insert into public.devices (name, location)
@@ -62,7 +53,7 @@ All the old options and hotkeys still work. `--stream` only adds the website pic
    returning device_key;
    ```
    Copy the `device_key`.
-2. **Create `web.env`** next to horse_monitor.py (this file stays on the Pi, never upload it to GitHub):
+2. **Create `web.env`** next to thesisv2.py (this file stays on the Pi, never upload it to GitHub):
    ```bash
    nano web.env
    ```
@@ -71,22 +62,33 @@ All the old options and hotkeys still work. `--stream` only adds the website pic
    SUPABASE_KEY=sb_publishable_YOUR_KEY
    DEVICE_KEY=PASTE_DEVICE_KEY
    ```
-3. **Add `--web` to horse_monitor.py and test the connection:**
+3. **Copy `web_link.py` and `web_stream.py`** next to thesisv2.py (replace older copies), then test:
    ```bash
-   python3 add_web_link.py horse_monitor.py
    python3 web_link.py --test
    ```
-   You should see `✓ Connected` and `✓ Remote registration is installed`.
-4. **Horses you already registered on the Pi** (with `r`, e.g. Jafar and Brongco): put them on the website once:
+   You should see `✓ Connected`, `✓ Remote registration is installed` and `✓ Reading upload (09_pi_readings.sql) is installed`.
+4. **Horses registered on the Pi before** (with `r`): put them on the website once:
    ```bash
    python3 web_link.py --push-existing
    ```
    Then set their age and normal temperature on the website (**Horses → Edit**).
-5. **Run it** (window + website):
+5. **Run it** (window + website). Pick a secret stream key (letters and numbers, e.g. `HorseCam2026x`):
    ```bash
-   python3 horse_monitor.py --thermal --dht --web --stream 8000 --stream-key HorseCam2026x
+   python3 thesisv2.py --thermal --dht --id-model horse_id_mobilenetv3_farm_v2.onnx \
+     --id-config horse_id_config_farm_v2.json --web --stream 8000 --stream-key HorseCam2026x
    ```
-   On the website: **Register** → type the name → **Start registration** → turn the horse. The window on the Pi shows the same registration.
+   On a phone **on the same Wi-Fi**, `http://<pi-ip>:8000` (find the IP with `hostname -I`) shows the same picture.
+   On the website: **Register** → type the name → **Start registration** → turn the horse.
+
+## QR plates (stall backup ID)
+The QR holds **only the horse code** in capitals (e.g. `HTM-92578BC8`), error correction M: the smallest QR
+(21 × 21 squares), so the camera reads it from farther away. Size: about **11 cm of QR per metre** between camera
+and plate (25 cm ≈ 2.3 m).
+- **On the Pi**, all plates at once: `python3 thesisv2.py --qr all`
+- **On the website**: Register (after a registration) or **Horses → profile → Print QR plate**. Choose the size, print
+  at **100% / Actual size** (not "Fit to page"). A 25 cm QR with its white border is 35.5 × 42.5 cm (A2): use
+  *Save as PDF* and print it at a print shop, or pick 20 cm (A3) / 13 cm (A4).
+- Hang it on the stall the horse is in, facing the camera. Move it with the horse.
 
 ## Step 2: Install Tailscale on the Pi (once)
 1. Create a free account at **tailscale.com**, ideally with a shared group email so it doesn't depend on one member.
@@ -122,10 +124,10 @@ Tailscale is now a system service and **starts by itself on every boot**.
    ```
 3. **Save All Settings** → **Dashboard** → red **LIVE** badge. ✅
 
-## Step 5: Start horse_monitor automatically on boot (no window)
-For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`. That means no window on the Pi, but the picture still goes to the website.
+## Step 5: Start thesisv2.py automatically on boot (no window)
+For a CCTV that runs by itself, thesisv2.py runs as a service with `--no-show`. That means no window on the Pi, but the picture still goes to the website.
 
-1. Find the two paths you need. In the folder with horse_monitor.py, with your Python environment active (if you use one):
+1. Find the two paths you need. In the folder with thesisv2.py, with your Python environment active (if you use one):
    ```bash
    pwd            # e.g. /home/pi/horse         → WorkingDirectory
    which python3  # e.g. /home/pi/horse/venv/bin/python3 → first part of ExecStart
@@ -138,13 +140,13 @@ For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`
    Paste, replacing the paths, user and key with yours:
    ```ini
    [Unit]
-   Description=Horse Thermal Monitor (detection + website stream)
+   Description=Horse Thermal Monitor (thesisv2.py + website)
    After=network-online.target
    Wants=network-online.target
 
    [Service]
    WorkingDirectory=/home/pi/horse
-   ExecStart=/home/pi/horse/venv/bin/python3 horse_monitor.py --thermal --dht --no-show --web --stream 8000 --stream-key HorseCam2026x
+   ExecStart=/home/pi/horse/venv/bin/python3 thesisv2.py --thermal --dht --id-model horse_id_mobilenetv3_farm_v2.onnx --id-config horse_id_config_farm_v2.json --no-show --web --stream 8000 --stream-key HorseCam2026x
    Restart=always
    RestartSec=10
    User=pi
@@ -161,15 +163,16 @@ For a CCTV that runs by itself, horse_monitor runs as a service with `--no-show`
    ```
 
 **Registering a horse** works from the website while the service runs (no window needed).
-**Calibration readings** (`k`) still need the window: stop the service, run by hand, start it again:
+**Calibration readings** (`k`, rectal thermometer) use **thesisv2_backup.py** with the window. Stop the service first (only one program can use the camera):
 ```bash
 sudo systemctl stop horse-monitor
-python3 horse_monitor.py --thermal --dht --web --stream 8000 --stream-key HorseCam2026x
+python3 thesisv2_backup.py --thermal --dht --id-model horse_id_mobilenetv3_farm_v2.onnx --id-config horse_id_config_farm_v2.json
 sudo systemctl start horse-monitor
 ```
+After new rectal readings, run `fit_compensation.py` again: thesisv2.py picks up the new `compensation.json` on its next start.
 
 ## Step 6: Connection indicator ("Raspberry Pi: Online")
-**With `--web` you can skip this step**: horse_monitor.py sends the heartbeat itself (camera, thermal, DHT22, CPU temperature). The separate `heartbeat.py` service is only useful if you want "Online" while horse_monitor is stopped. Don't run both.
+**With `--web` you can skip this step**: thesisv2.py sends the heartbeat itself (camera, thermal, DHT22, CPU temperature). The separate `heartbeat.py` service is only useful if you want "Online" while thesisv2.py is stopped. Don't run both.
 
 1. Register the Pi as a device (once). In Supabase **SQL Editor**:
    ```sql
@@ -183,7 +186,7 @@ sudo systemctl start horse-monitor
    python3 heartbeat.py --once --url https://pjqocndvsdkpeuzjjxdz.supabase.co \
      --key sb_publishable_YOUR_KEY --device-key PASTE_DEVICE_KEY
    ```
-   It ends with `✓ connected to the website`. The report shows `"camera": true` while horse_monitor is streaming, and `"monitor": true` while horse_monitor.py runs.
+   It ends with `✓ connected to the website`. 
 3. Make it automatic:
    ```bash
    sudo nano /etc/systemd/system/horse-heartbeat.service
@@ -224,23 +227,26 @@ Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The hea
 |---|---|
 | Dashboard: **Camera not set up yet** | No address saved. Do Step 4. |
 | Dashboard: **Camera offline** | On the Pi: `systemctl status horse-monitor` (running?) and `tailscale funnel status` (Funnel on?). Then open `http://<pi-ip>:8000` on the farm Wi-Fi. |
-| `Could not find this line` from add_streaming.py | Your horse_monitor.py is a different version. Send the error to Claude. |
+| No new readings on the website | `python3 web_link.py --test`. If it lists readings waiting in `pending_readings.jsonl`, they are sent once thesisv2.py --web runs with internet. *Reading upload isn't installed* → run `09_pi_readings.sql`. |
+| Log: *readings wait for supabase/09_pi_readings.sql* | Run `09_pi_readings.sql`. Nothing is lost: the readings wait in `pending_readings.jsonl`. |
+| Log: *the website doesn't know HTM-…* | That horse was deleted on the website. Its readings stay in horses.db and `rejected_readings.jsonl`. |
+| `already has the website link built in` | You ran add_web_link.py on the new thesisv2.py. Nothing was changed; it doesn't need it. |
 | **Can't be shown here (http://)** | You pasted the local `http://` address. Use the `https://…ts.net` address. |
 | Page says *Wrong or missing ?key=* | The key in the website address doesn't match `--stream-key`. |
-| `Address already in use` (port 8000) | Something else uses port 8000, e.g. `camera_stream.py` or a second horse_monitor. Stop it: `sudo systemctl stop horse-camera` / `pkill -f camera_stream.py`. |
-| Camera error *"Device or resource busy"* | Two programs are using the camera. Only horse_monitor should run. `sudo systemctl disable --now horse-camera` if you set up camera_stream earlier. |
+| `Address already in use` (port 8000) | Something else uses port 8000, e.g. `camera_stream.py`, thesisv2_backup.py or a second thesisv2.py. Stop it: `sudo systemctl stop horse-camera` / `pkill -f camera_stream.py`. |
+| Camera error *"Device or resource busy"* | Two programs are using the camera. Only thesisv2.py should run. `sudo systemctl disable --now horse-camera` if you set up camera_stream earlier. |
 | Header **Raspberry Pi: Offline** | `journalctl -u horse-heartbeat -n 20`. *Unknown or inactive device* = wrong DEVICE_KEY; *cannot reach Supabase* = no internet. |
 | Header **Not set up** | Run `supabase/04_device_status.sql`. |
-| See horse_monitor errors | `journalctl -u horse-monitor -n 50` |
-| Register page stays on **Waiting for the Pi…** | horse_monitor.py isn't running with `--web`, or `web.env` is wrong. Run `python3 web_link.py --test`. |
+| See thesisv2.py errors | `journalctl -u horse-monitor -n 50` |
+| Register page stays on **Waiting for the Pi…** | thesisv2.py isn't running with `--web`, or `web.env` is wrong. Run `python3 web_link.py --test`. |
 | Register page: "isn't installed in the database" | Run `supabase/07_remote_registration.sql`. |
 | "looks like X, not saved" | The new horse's photos match an already registered horse. If it really is a different horse, press **Register anyway**. |
-| `Could not find this line` from add_web_link.py | Your horse_monitor.py is a different version. Send the error to Claude. |
-| Dashboard says **Not live** | The monitor isn't running with `--web`, or it's the old patch: do *Updating from an older web_link.py*. |
+| Dashboard says **Not live** | The Pi isn't sending the 2-second live view. Normal for thesisv2.py if it only sends readings: the Dashboard then follows the readings and shows the DHT22 from the heartbeat. |
 | Dashboard: "needs the database update 08_live_view.sql" | Run `supabase/08_live_view.sql`. |
 | Dashboard: "X isn't on the website yet" | That horse was registered on the Pi only: `python3 web_link.py --push-existing`. |
-| Log: *the website doesn't know X any more* | X was deleted on the website. Its readings stay on the Pi only. Register it again from the website. |
 | Video slow / laggy | Add `--stream-fps 4` to the service command. |
 
-### Testing without horse_monitor (optional)
-`camera_stream.py` streams the plain camera on port 8000 (`python3 camera_stream.py --key HorseCam2026x`, or `--test` for a moving test picture). **Never run it at the same time as horse_monitor.py.**
+### Older scripts (horse_monitor.py)
+horse_monitor.py doesn't have the website built in: `python3 add_streaming.py horse_monitor.py` and
+`python3 add_web_link.py horse_monitor.py` add `--stream` and `--web` (each keeps a backup, safe to run twice).
+`camera_stream.py` streams the plain camera without any monitor (`--test` for a moving test picture). Never run two camera programs at once.

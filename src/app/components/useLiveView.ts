@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getLiveView, subscribeToChanges, toLiveView, type LiveHorse, type LiveView } from '../lib/api';
+import { getLatestPiReading, getLiveView, subscribeToChanges, toLiveView, type LiveHorse, type LiveView } from '../lib/api';
 
 const POLL_MS = 3000;
 /** The Pi sends every ~2 s. Older than this = the monitor stopped or lost internet. */
@@ -13,6 +13,7 @@ export function useLiveView(enabled: boolean) {
   const [view, setView] = useState<LiveView | null | undefined>(undefined);
   const [installed, setInstalled] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [lastPiReading, setLastPiReading] = useState<{ id: number; horse_id: string; recorded_at: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -27,6 +28,8 @@ export function useLiveView(enabled: boolean) {
     } catch {
       /* network hiccup: keep the last view, it turns "stale" by itself */
     }
+    const r = await getLatestPiReading();
+    if (r) setLastPiReading((prev) => (prev?.id === r.id ? prev : r));
     setNow(Date.now());
   }, []);
 
@@ -48,7 +51,7 @@ export function useLiveView(enabled: boolean) {
   const ageMs = view ? Math.max(0, now - new Date(view.updated_at).getTime()) : null;
   const fresh = ageMs !== null && ageMs < LIVE_STALE_MS;
   const main = fresh && view ? pickMainHorse(view.horses) : null;
-  return { view, installed, fresh, ageMs, main, refresh };
+  return { view, installed, fresh, ageMs, main, lastPiReading, refresh };
 }
 
 /** The horse the Dashboard follows: an identified one first, otherwise whoever is in view. */

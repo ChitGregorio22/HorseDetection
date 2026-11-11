@@ -102,7 +102,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
     try {
       await saveCalibration(deviceId, Number(offset));
       setDevices(await getDevices());
-      setCalNotice({ kind: 'ok', text: 'Calibration saved. New readings from this camera will be adjusted.' });
+      setCalNotice({ kind: 'ok', text: 'Offset saved. It only affects readings sent with the old submit_reading method.' });
     } catch (e) {
       setCalNotice({ kind: 'error', text: (e as Error).message });
     }
@@ -224,11 +224,23 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
       {/* Calibration */}
       {isAdmin && (
         <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
-          <h2 className="text-2xl mb-6">Camera Calibration</h2>
+          <h2 className="text-2xl mb-4">Camera Calibration</h2>
 
-          <div className="space-y-4">
-            <p className="text-xl text-gray-600">
-              Compare the camera with a rectal thermometer reading, then enter the difference. Example: thermometer 37.6°C, camera 37.2°C → offset +0.4.
+          <div className="mb-4 rounded-xl border-2 border-green-300 bg-green-50 p-4 text-lg text-green-900">
+            <strong>The Pi calibrates its own readings.</strong> thesisv2.py turns the coat temperature into body temperature
+            with <code>compensation.json</code> (rectal readings + DHT22 air temperature and humidity, made by
+            fit_compensation.py). Readings it sends are final, so the website <strong>never</strong> adds an offset to them.
+            To recalibrate, take new rectal readings on the Pi (key <strong>k</strong>) and run fit_compensation.py again.
+          </div>
+
+          <details className="rounded-xl border-2 border-gray-200 p-4">
+            <summary className="cursor-pointer text-lg text-gray-700">
+              Old website offset (not used for Pi readings)
+            </summary>
+          <div className="mt-4 space-y-4">
+            <p className="text-lg text-gray-600">
+              Only applies to readings sent with the older <code>submit_reading</code> method (e.g. device/send_reading.py), not to
+              thesisv2.py. Leave it at 0 unless you use that method.
             </p>
 
             {devices.length === 0 ? (
@@ -274,10 +286,11 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
             {devices.length > 0 && (
               <button onClick={submitCalibration} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg text-xl hover:bg-blue-700">
                 <Thermometer className="w-6 h-6" />
-                Save Calibration
+                Save Offset
               </button>
             )}
           </div>
+          </details>
         </div>
       )}
 

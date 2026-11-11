@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, ArchiveRestore, Calendar, Pencil, Plus, Thermometer, Trash2, UserMinus } from "lucide-react";
+import { QrPlate } from "./QrPlate";
+import { fmtHumidity, fmtTemp, fmtWhen, MethodBadge, RecentReadingsTable, useRecentReadings } from "./ReadingBits";
 import type { HorseRecord } from "../App";
 import {
   classify,
@@ -132,6 +134,15 @@ export function Horses({
                   <div className={`${status.text} text-4xl tabular-nums`}>
                     {horse.currentTemperature == null ? "—" : `${horse.currentTemperature.toFixed(1)}°C`}
                   </div>
+                  {horse.currentTemperature != null && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-gray-700">
+                      <span>Surface {fmtTemp(horse.surfaceTemperature)}</span>
+                      <span className="text-blue-700">Air {fmtTemp(horse.envTemperature)}</span>
+                      <span className="text-cyan-700">{fmtHumidity(horse.humidity)} RH</span>
+                      <MethodBadge method={horse.idMethod} />
+                      <span className="text-gray-500">{fmtWhen(horse.lastUpdated)}</span>
+                    </div>
+                  )}
                   <div className="text-xl text-gray-600">Age: {horse.age ?? "—"} years</div>
                   <div className={`${status.text} inline-block rounded-lg text-xl font-semibold`}>
                     {status.label}
@@ -181,15 +192,18 @@ export function Horses({
             <div>
               <div className="text-lg text-gray-600">Last temperature update</div>
               <div className="mt-1 text-2xl">{formatLastUpdated(currentHorse.lastUpdated)}</div>
-              <div className="mt-6 text-lg text-gray-600">Horse ID (QR tag)</div>
-              <div className="mt-1 font-mono text-2xl">{currentHorse.horseCode}</div>
               {currentHorse.openAlerts > 0 && (
                 <p className="mt-4 text-xl font-semibold text-red-600">
                   {currentHorse.openAlerts} open fever alert{currentHorse.openAlerts === 1 ? "" : "s"}
                 </p>
               )}
+              <div className="mt-6 rounded-2xl border-2 border-dashed border-green-300 bg-[#f8fcf8] p-5">
+                <QrPlate name={currentHorse.name} code={currentHorse.horseCode} />
+              </div>
             </div>
           </div>
+
+          <ProfileReadings horseId={currentHorse.id} />
         </div>
       )}
 
@@ -419,4 +433,15 @@ function HorsePhoto({ src, name }: { src: string; name: string }) {
     return <div className="flex h-full min-h-48 w-full items-center justify-center bg-white/60 text-6xl">🐎</div>;
   }
   return <img src={src} alt={name} onError={() => setFailed(true)} className="h-full min-h-48 w-full object-cover" />;
+}
+
+/** Horse profile: the newest readings with surface, air, humidity and how the horse was named */
+function ProfileReadings({ horseId }: { horseId: string }) {
+  const { rows, loading } = useRecentReadings(horseId, 20);
+  return (
+    <div className="mt-8">
+      <h3 className="mb-3 text-2xl">Recent readings</h3>
+      <RecentReadingsTable rows={rows} loading={loading} />
+    </div>
+  );
 }

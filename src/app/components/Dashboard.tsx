@@ -3,13 +3,16 @@ import { AlertTriangle, Camera, Droplets, Minus, ScanSearch, Thermometer, Trendi
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from 'recharts';
 import type { HorseRecord } from '../App';
 import { LiveCamera } from './LiveCamera';
-import { classify, getRecentReadings, subscribeToChanges, type LiveHorse, type Reading, type Settings } from '../lib/api';
+import { classify, getRecentReadings, subscribeToChanges, timeAgo, type DeviceStatus, type LiveHorse, type Reading, type Settings } from '../lib/api';
+import { fmtHumidity, fmtTemp, fmtWhen, MethodBadge } from './ReadingBits';
 import type { useLiveView } from './useLiveView';
 
 interface DashboardProps {
   horse: HorseRecord | null;
   horses: HorseRecord[];
   settings: Settings;
+  /** Pi heartbeat (air temperature + humidity every 30 s) */
+  devices: DeviceStatus[] | null | undefined;
   live: ReturnType<typeof useLiveView>;
   followCamera: boolean;
   onFollowCameraChange: (on: boolean) => void;
@@ -34,6 +37,7 @@ export function Dashboard({
   horse,
   horses,
   settings,
+  devices,
   live,
   followCamera,
   onFollowCameraChange,
@@ -64,6 +68,9 @@ export function Dashboard({
         body_temp: Number(row.body_temp),
         env_temp: row.env_temp == null ? null : Number(row.env_temp),
         humidity: row.humidity == null ? null : Number(row.humidity),
+        surface_temp: row.surface_temp == null ? null : Number(row.surface_temp),
+        id_method: (row.id_method as Reading['id_method']) ?? null,
+        device_id: (row.device_id as string) ?? null,
         status: row.status as Reading['status'],
         recorded_at: String(row.recorded_at),
       };
@@ -91,8 +98,26 @@ export function Dashboard({
   const main = live.main;
   const mainRecord = main?.horse_code ? horses.find((h) => h.horseCode === main.horse_code) ?? null : null;
   const others = live.fresh && live.view ? live.view.horses.filter((h) => h !== main) : [];
-  const airTemp = live.fresh ? live.view?.air_temp ?? null : latest?.env_temp ?? horse?.envTemperature ?? null;
-  const humidity = live.fresh ? live.view?.humidity ?? null : latest?.humidity ?? null;
+  // Air temperature + humidity: live view (every 2 s) → Pi heartbeat (every 30 s) → last stored reading
+  const beat = (devices ?? []).find(
+    (d) => d.online && d.status && (d.status.air_temp != null || d.status.humidity != null),
+  );
+  const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
+  const env = live.fresh && live.view && (live.view.air_temp != null || live.view.humidity != null)
+    ? { air: live.view.air_temp, rh: live.view.humidity, source: 'Live from the Pi (DHT22)' }
+    : beat
+      ? {
+          air: numOrNull(beat.status.air_temp),
+          rh: numOrNull(beat.status.humidity),
+          source: `Pi DHT22 · ${beat.last_seen_at ? timeAgo(beat.last_seen_at) : 'now'}`,
+        }
+      : {
+          air: latest?.env_temp ?? horse?.envTemperature ?? null,
+          rh: latest?.humidity ?? horse?.humidity ?? null,
+          source: latest || horse?.lastUpdated ? `At the last reading · ${fmtWhen(latest?.recorded_at ?? horse?.lastUpdated)}` : 'Pi offline',
+        };
+  const airTemp = env.air;
+  const humidity = env.rh;
 
   const camera = (
     <LiveCamera
@@ -146,6 +171,7 @@ export function Dashboard({
           </div>
           <div className="mt-2 text-4xl tabular-nums text-cyan-700">{humidity == null ? '—' : `${humidity.toFixed(0)}%`}</div>
         </div>
+        <div className="col-span-2 -mt-2 text-base text-gray-500">{env.source}</div>
       </div>
 
       {live.installed && (
@@ -248,12 +274,34 @@ export function Dashboard({
     <div className="p-6 space-y-6">
       {top}
 
-      <div className="flex flex-wrap items-baseline gap-3 pt-2">
-        <h2 className="text-3xl">{horse.name}</h2>
-        <span className="text-xl text-gray-600">stored readings</span>
-        <span className={`${status.color} rounded-lg border-2 ${status.border} ${status.bg} px-3 py-0.5 text-xl`}>
-          Last {currentTemp.toFixed(1)}°C · {status.text}
-        </span>
+      {/* Latest stored reading of the selected horse */}
+      <div className={`rounded-2xl border-4 ${status.border} ${status.bg} p-5`}>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="text-3xl">{horse.name} · latest reading</h2>
+          <div className="flex items-center gap-2 text-lg text-gray-700">
+            {fmtWhen(latest?.recorded_at ?? horse.lastUpdated)}
+            <MethodBadge method={latest ? latest.id_method : horse.idMethod} manual={latest ? !latest.device_id : false} />
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div>
+            <div className="text-lg text-gray-600">Body</div>
+            <div className={`text-4xl tabular-nums ${status.color}`}>{currentTemp.toFixed(1)}°C</div>
+            <div className={`text-lg ${status.color}`}>{status.text}</div>
+          </div>
+          <div>
+            <div className="text-lg text-gray-600">Surface (coat)</div>
+            <div className="text-3xl tabular-nums text-gray-800">{fmtTemp(latest ? latest.surface_temp : horse.surfaceTemperature)}</div>
+          </div>
+          <div>
+            <div className="text-lg text-gray-600">Air</div>
+            <div className="text-3xl tabular-nums text-blue-700">{fmtTemp(latest ? latest.env_temp : horse.envTemperature)}</div>
+          </div>
+          <div>
+            <div className="text-lg text-gray-600">Humidity</div>
+            <div className="text-3xl tabular-nums text-cyan-700">{fmtHumidity(latest ? latest.humidity : horse.humidity)}</div>
+          </div>
+        </div>
       </div>
 
       {/* Data Analysis */}
@@ -315,6 +363,7 @@ export function Dashboard({
               stroke={status.hex}
               strokeWidth={3}
               dot={{ fill: status.hex, r: 5 }}
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -389,8 +438,8 @@ function StallHorse({
           {!live.installed
             ? 'Live identification needs the database update 08_live_view.sql.'
             : live.view === null
-              ? 'The Pi hasn\u2019t sent live data yet. Run thesisv2.py with --web.'
-              : 'The Pi stopped sending live data (monitor stopped or no internet).'}
+              ? 'Showing the last stored reading. The Dashboard switches to each horse when the Pi sends its reading.'
+              : 'The Pi stopped sending live data (monitor stopped or no internet). Showing the last stored reading.'}
         </p>
       </div>
     );

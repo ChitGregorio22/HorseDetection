@@ -4,17 +4,14 @@ import {
   Check,
   CheckCircle2,
   Circle,
-  Download,
   Loader2,
   PawPrint,
-  Printer,
-  QrCode,
   RotateCw,
   ShieldCheck,
   Video,
   X,
 } from "lucide-react";
-import QRCode from "qrcode";
+import { QrPlate } from "./QrPlate";
 import { LiveCamera } from "./LiveCamera";
 import {
   cancelRegistration,
@@ -61,7 +58,6 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [horse, setHorse] = useState<RegisteredHorse | null>(null);
-  const [qrCode, setQrCode] = useState("");
   const [showResult, setShowResult] = useState(false); // only show "done"/"failed" for requests made in this visit
   const reportedDone = useRef<number | null>(null);
 
@@ -108,15 +104,9 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
   useEffect(() => {
     if (!request || request.status !== "done" || !request.horse_id || reportedDone.current === request.id) return;
     reportedDone.current = request.id;
-    getHorseBasic(request.horse_id).then(async (h) => {
+    getHorseBasic(request.horse_id).then((h) => {
       if (!h) return;
       setHorse(h);
-      setQrCode(
-        await QRCode.toDataURL(
-          JSON.stringify({ system: "Horse Thermal Monitor", horseId: h.horseCode, horseName: h.name, registeredAt: h.registeredAt }),
-          { width: 520, margin: 2, errorCorrectionLevel: "H", color: { dark: "#173B2A", light: "#FFFFFF" } },
-        ),
-      );
       onRegistered({ id: h.id });
     });
   }, [request, onRegistered]);
@@ -136,7 +126,6 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
       setRequest(r);
       setShowResult(true);
       setHorse(null);
-      setQrCode("");
     } catch (e) {
       setFormError((e as Error).message);
     } finally {
@@ -161,19 +150,10 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
     setRequest(null);
     setShowResult(false);
     setHorse(null);
-    setQrCode("");
     setName("");
     setAge("");
     setNormalTemp("37.2");
     setFormError("");
-  };
-
-  const downloadQr = () => {
-    if (!qrCode || !horse) return;
-    const link = document.createElement("a");
-    link.download = `${horse.name.replace(/\s+/g, "-").toLowerCase()}-horse-qr.png`;
-    link.href = qrCode;
-    link.click();
   };
 
   // ------------------------------------------------------------ finished: horse card + QR
@@ -229,35 +209,14 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
             </div>
 
             <aside className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-[#f8fcf8] p-6 text-center">
-              <div className="mb-3 flex items-center gap-2 text-green-800">
-                <QrCode className="h-6 w-6" />
-                <span className="text-lg font-semibold">Horse ID QR Code</span>
-              </div>
-              {qrCode && (
-                <img src={qrCode} alt={`QR code for ${horse.name}`} className="w-full max-w-[280px] rounded-xl border border-gray-200 bg-white p-3" />
-              )}
-              <p className="mt-3 text-base text-gray-600">Scan to verify horse identity</p>
-              <div className="mt-6 grid w-full gap-3">
-                <button
-                  type="button"
-                  onClick={downloadQr}
-                  className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-lg font-semibold text-white hover:bg-green-700"
-                >
-                  <Download className="h-5 w-5" /> Download QR
-                </button>
+              <QrPlate name={horse.name} code={horse.horseCode} />
+              <div className="mt-3 grid w-full gap-3">
                 <button
                   type="button"
                   onClick={onViewDashboard}
                   className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-green-800 px-5 py-3 text-lg font-semibold text-white hover:bg-green-900"
                 >
                   View on Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-gray-300 bg-white px-5 py-3 text-lg font-semibold text-gray-800 hover:bg-gray-100"
-                >
-                  <Printer className="h-5 w-5" /> Print Card
                 </button>
                 <button
                   type="button"

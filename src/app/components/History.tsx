@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, CloudSun, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, CloudSun, Download, Droplets } from 'lucide-react';
 import type { HorseRecord } from '../App';
-import { downloadReadingsCsv, getDailySummary, subscribeToChanges, type DailySummary, type Settings } from '../lib/api';
+import { downloadReadingsCsv, getDailySummary, getReadingsSince, subscribeToChanges, type DailySummary, type Reading, type Settings } from '../lib/api';
 
 interface HistoryProps {
   horse: HorseRecord | null;
@@ -62,7 +62,8 @@ export function History({ horse, settings }: HistoryProps) {
     date: new Date(`${d.day}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
     temp: d.avg_body_temp,
     peak: d.peak_body_temp,
-    envTemp: d.avg_env_temp ?? 0,
+    envTemp: d.avg_env_temp,
+    humidity: d.avg_humidity,
     time: new Date(d.peak_time).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }),
     status: d.status,
   }));
@@ -71,7 +72,12 @@ export function History({ horse, settings }: HistoryProps) {
 
   // Calculate data analysis
   const avgTemp = historicalData.reduce((sum, d) => sum + d.temp, 0) / historicalData.length;
-  const avgEnvTemp = historicalData.reduce((sum, d) => sum + d.envTemp, 0) / historicalData.length;
+  const mean = (xs: (number | null)[]) => {
+    const v = xs.filter((x): x is number => x != null);
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  };
+  const avgEnvTemp = mean(historicalData.map((d) => d.envTemp));
+  const avgHumidity = mean(historicalData.map((d) => d.humidity));
   const maxTemp = Math.max(...historicalData.map(d => d.peak));
   const minTemp = Math.min(...days.map(d => d.min_body_temp));
   const tempTrend = historicalData.length >= 2
@@ -128,13 +134,15 @@ export function History({ horse, settings }: HistoryProps) {
           <div className="bg-indigo-50 border-2 border-indigo-600 rounded-xl p-4">
             <div className="text-lg text-indigo-600 mb-2">Average Body Temp</div>
             <div className="text-3xl text-indigo-700 tabular-nums">{avgTemp.toFixed(1)}°C</div>
-            <div className="text-lg text-gray-600 mt-2">7-day average</div>
+            <div className="text-lg text-gray-600 mt-2">{historicalData.length}-day average</div>
           </div>
 
           <div className="bg-teal-50 border-2 border-teal-600 rounded-xl p-4">
-            <div className="text-lg text-teal-600 mb-2">Avg Environment</div>
-            <div className="text-3xl text-teal-700 tabular-nums">{avgEnvTemp.toFixed(1)}°C</div>
-            <div className="text-lg text-gray-600 mt-2">7-day average</div>
+            <div className="text-lg text-teal-600 mb-2">Avg Air Temperature</div>
+            <div className="text-3xl text-teal-700 tabular-nums">{avgEnvTemp == null ? '—' : `${avgEnvTemp.toFixed(1)}°C`}</div>
+            <div className="text-lg text-gray-600 mt-2">
+              Humidity {avgHumidity == null ? '—' : `${avgHumidity.toFixed(0)}%`} · DHT22
+            </div>
           </div>
 
           <div className="bg-orange-50 border-2 border-orange-600 rounded-xl p-4">
@@ -184,7 +192,7 @@ export function History({ horse, settings }: HistoryProps) {
 
       {/* Large Chart */}
       <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
-        <h2 className="text-2xl mb-4">{historicalData.length}-Day Temperature Trend</h2>
+        <h2 className="text-2xl mb-4">{historicalData.length}-Day Trend (daily averages)</h2>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={historicalData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -206,18 +214,18 @@ export function History({ horse, settings }: HistoryProps) {
               domain={[15, 40]}
               tick={{ fontSize: 16 }}
               stroke="#6b7280"
-              label={{ value: 'Environment (°C)', angle: 90, position: 'insideRight', style: { fontSize: 16 } }}
+              label={{ value: 'Air (°C)', angle: 90, position: 'insideRight', style: { fontSize: 16 } }}
             />
             <Tooltip
               contentStyle={{ fontSize: 16, padding: 12 }}
               formatter={(value: number, name: string) => [
                 `${value}°C`,
-                name === 'temp' ? 'Avg Body Temperature' : 'Avg Environment'
+                name === 'temp' ? 'Avg Body Temperature' : 'Avg Air Temperature'
               ]}
             />
             <Legend
               wrapperStyle={{ fontSize: 16 }}
-              formatter={(value) => value === 'temp' ? 'Avg Body Temperature' : 'Avg Environment Temperature'}
+              formatter={(value) => value === 'temp' ? 'Avg Body Temperature' : 'Avg Air Temperature'}
             />
             <Line
               yAxisId="left"
@@ -237,10 +245,13 @@ export function History({ horse, settings }: HistoryProps) {
               dot={{ fill: '#3B82F6', r: 5 }}
               strokeDasharray="5 5"
               name="envTemp"
+              connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      <ReadingsChart horseId={horse.id} settings={settings} />
 
       {/* Data Table */}
       <div className="bg-white border-2 border-gray-200 rounded-2xl overflow-hidden">
@@ -255,7 +266,8 @@ export function History({ horse, settings }: HistoryProps) {
                 <th className="text-left p-4 text-xl">Peak Time</th>
                 <th className="text-left p-4 text-xl">Avg Body</th>
                 <th className="text-left p-4 text-xl">Peak Body</th>
-                <th className="text-left p-4 text-xl">Environment</th>
+                <th className="text-left p-4 text-xl">Air Temp</th>
+                <th className="text-left p-4 text-xl">Humidity</th>
                 <th className="text-left p-4 text-xl">Status</th>
               </tr>
             </thead>
@@ -275,7 +287,17 @@ export function History({ horse, settings }: HistoryProps) {
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <CloudSun className="w-5 h-5 text-blue-600" />
-                        <span className="text-2xl tabular-nums text-blue-600">{record.envTemp.toFixed(1)}°C</span>
+                        <span className="text-2xl tabular-nums text-blue-600">
+                          {record.envTemp == null ? '—' : `${record.envTemp.toFixed(1)}°C`}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Droplets className="w-5 h-5 text-cyan-600" />
+                        <span className="text-2xl tabular-nums text-cyan-700">
+                          {record.humidity == null ? '—' : `${record.humidity.toFixed(0)}%`}
+                        </span>
                       </div>
                     </td>
                     <td className="p-4">
@@ -342,6 +364,104 @@ function CsvDownload({ horse }: { horse: HorseRecord }) {
         </button>
       </div>
       {message && <p className="mt-2 text-base text-gray-600">{message}</p>}
+    </div>
+  );
+}
+
+/** Every stored reading: body temperature against air temperature (top) and humidity (bottom). */
+function ReadingsChart({ horseId, settings }: { horseId: string; settings: Settings }) {
+  const [range, setRange] = useState(1);
+  const [rows, setRows] = useState<Reading[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      getReadingsSince(horseId, range)
+        .then((r) => !cancelled && setRows(r))
+        .catch(() => !cancelled && setRows([]))
+        .finally(() => !cancelled && setLoading(false));
+    setLoading(true);
+    load();
+    const unsubscribe = subscribeToChanges('history-readings', ['temperature_readings'], () => load(), horseId);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [horseId, range]);
+
+  const data = rows.map((r) => ({
+    t: new Date(r.recorded_at).getTime(),
+    body: r.body_temp,
+    air: r.env_temp,
+    rh: r.humidity ?? null,
+  }));
+  const tick = (t: number) =>
+    new Date(t).toLocaleString('en-PH', range > 1 ? { month: 'short', day: 'numeric', hour: 'numeric' } : { hour: 'numeric', minute: '2-digit' });
+  const full = (t: number) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const bodies = data.map((d) => d.body);
+  const lo = Math.min(36.5, ...bodies) - 0.2;
+  const hi = Math.max(39, settings.fever_threshold + 0.5, ...bodies) + 0.2;
+
+  return (
+    <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-2xl">Every reading: body vs air temperature and humidity</h2>
+        <div className="flex gap-2">
+          {[
+            { d: 1, label: '24 hours' },
+            { d: 7, label: '7 days' },
+          ].map((o) => (
+            <button
+              key={o.d}
+              type="button"
+              onClick={() => setRange(o.d)}
+              className={`rounded-lg px-4 py-2 text-lg ${range === o.d ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <p className="text-lg text-gray-600">{loading ? 'Loading readings…' : 'No readings in this period.'}</p>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={data} syncId="readings">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={tick} tick={{ fontSize: 14 }} stroke="#6b7280" />
+              <YAxis yAxisId="body" domain={[Math.floor(lo * 2) / 2, Math.ceil(hi * 2) / 2]} tick={{ fontSize: 14 }} stroke="#16a34a"
+                label={{ value: 'Body (°C)', angle: -90, position: 'insideLeft', style: { fontSize: 14 } }} />
+              <YAxis yAxisId="air" orientation="right" domain={['dataMin - 2', 'dataMax + 2']} allowDecimals={false} tick={{ fontSize: 14 }} stroke="#2563eb"
+                label={{ value: 'Air (°C)', angle: 90, position: 'insideRight', style: { fontSize: 14 } }} />
+              <Tooltip
+                contentStyle={{ fontSize: 15, padding: 10 }}
+                labelFormatter={(t) => full(Number(t))}
+                formatter={(v: number, n: string) => [`${Number(v).toFixed(1)}°C`, n === 'body' ? 'Body' : 'Air']}
+              />
+              <Legend wrapperStyle={{ fontSize: 15 }} formatter={(v) => (v === 'body' ? 'Body temperature' : 'Air temperature (DHT22)')} />
+              <Line yAxisId="body" type="monotone" dataKey="body" name="body" stroke="#16a34a" strokeWidth={3}
+                dot={data.length < 80 ? { r: 3, fill: '#16a34a' } : false} isAnimationActive={false} />
+              <Line yAxisId="air" type="monotone" dataKey="air" name="air" stroke="#2563eb" strokeWidth={2}
+                strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={data} syncId="readings">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={tick} tick={{ fontSize: 14 }} stroke="#6b7280" />
+              <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 14 }} stroke="#0891b2"
+                label={{ value: 'Humidity (%)', angle: -90, position: 'insideLeft', style: { fontSize: 14 } }} />
+              <Tooltip contentStyle={{ fontSize: 15, padding: 10 }} labelFormatter={(t) => full(Number(t))}
+                formatter={(v: number) => [`${Number(v).toFixed(0)}%`, 'Humidity']} />
+              <Line type="monotone" dataKey="rh" name="rh" stroke="#0891b2" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-base text-gray-500">{data.length} readings. Body temperature is already compensated on the Pi for air temperature and humidity.</p>
+        </>
+      )}
     </div>
   );
 }

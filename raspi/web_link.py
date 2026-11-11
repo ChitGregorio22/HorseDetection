@@ -8,13 +8,17 @@ With  python3 thesisv2.py --web ...  (or horse_monitor.py) the monitor:
     the website's horse ID (horse_code) in horses.db, so later readings attach to the right horse,
   * every ~2 s tells the website what the camera sees right now (which horse, how sure, its
     temperature, air temperature, humidity): the Dashboard follows it live,
-  * every minute uploads one reading per IDENTIFIED horse (median of that minute: body temp,
-    air temp, humidity) for History, trends and fever alerts. Unidentified / uncertain horses
-    are never uploaded under a name,
+  * uploads the readings the script stores: thesisv2.py calls web.queue_reading({...}) once per
+    confirmed horse per minute (final body temp, surface temp, air temp, humidity, fingerprint/QR).
+    queue_reading() never blocks; a background thread sends them with device_submit_reading
+    (supabase/09_pi_readings.sql) and keeps unsent ones in pending_readings.jsonl, so nothing is
+    lost when the internet drops or the Pi restarts. A retried reading is never stored twice.
+    (Older scripts without queue_reading(): web_link makes one reading per identified horse per
+    minute itself.) Unidentified / uncertain horses are never uploaded under a name,
   * reports a heartbeat every 30 s ("Raspberry Pi: Online" + camera / thermal / DHT22 status).
 
-All website logic lives in THIS file: the monitor script only calls web.tick(globals()) once per
-frame (added by add_web_link.py), so updating web_link.py never needs the script to be patched again.
+thesisv2.py already has --web built in (don't run add_web_link.py on it). For older scripts,
+add_web_link.py adds a one-line web.tick(globals()) per frame.
 
 Settings: a file  web.env  next to horse_monitor.py (keep it private, never upload it):
     SUPABASE_URL=https://YOUR-PROJECT.supabase.co
@@ -40,8 +44,11 @@ from pathlib import Path
 POLL_SEC = 2.0          # how often to ask "anything to register?" / send progress / live view
 HEARTBEAT_SEC = 30.0    # website shows Offline after 90 s without one
 LIVE_SEC = 2.0          # live view ("Bella in the stall, 37.9 C") at most this often
-UPLOAD_SEC = 60.0       # one stored reading per identified horse per minute
-MIN_SAMPLES = 5         # a minute needs at least this many temperature samples to be uploaded
+UPLOAD_SEC = 60.0       # older scripts only: one reading per identified horse per minute
+MIN_SAMPLES = 5         # older scripts only: a minute needs at least this many temperature samples
+PENDING_FILE = Path(__file__).with_name("pending_readings.jsonl")    # unsent readings (survive restarts)
+REJECTED_FILE = Path(__file__).with_name("rejected_readings.jsonl")  # readings the website refused, with why
+PENDING_MAX = 50000     # ~35 days of one horse at 1/min; beyond that the oldest are dropped
 
 
 def read_env(path):
@@ -78,8 +85,10 @@ class WebLink:
         self.online = None
         self.last_beat = 0.0
         self.live_latest = None           # newest live-view state, not sent yet
-        self.readings = queue.Queue()     # per-minute readings waiting to be uploaded
+        self.inbound = queue.Queue()      # queue_reading() -> reading thread (never blocks the camera)
+        self.external_readings = None     # True = the script calls queue_reading() itself (thesisv2.py)
         self.dead_codes = set()           # horse IDs the website doesn't know (deleted there)
+        self.readings_sent = 0
         self._codes, self._codes_t = {}, 0.0          # local name -> website horse_code
         self._acc, self._acc_t0 = {}, time.time()      # horse_code -> samples this minute
         self._last_live = 0.0
@@ -89,6 +98,7 @@ class WebLink:
                 db.execute("ALTER TABLE horses ADD COLUMN horse_code TEXT")
                 db.commit()
         threading.Thread(target=self._loop, daemon=True).start()
+        threading.Thread(target=self._reading_loop, daemon=True).start()
         print(f"Web link: {self.url} (registrations from the website, heartbeat every {HEARTBEAT_SEC:.0f} s)")
 
     @classmethod
@@ -155,7 +165,6 @@ class WebLink:
                                 self._warned_live = True
                         else:
                             raise
-                self._send_readings()
                 if time.time() - self.last_beat >= HEARTBEAT_SEC:
                     with self.lock:
                         status = dict(self.status)
@@ -187,30 +196,119 @@ class WebLink:
                 self.jobs.put(job)              # keep it and try again next round
                 raise
 
-    def _send_readings(self):
-        sent = 0
-        while sent < 20:
-            try:
-                r = self.readings.get_nowait()
+    # ------------------------------------------------------------ readings (thesisv2.py: web.queue_reading)
+    def queue_reading(self, reading, _from_script=True):
+        """Called by the monitor script for each stored reading. Never blocks: the reading thread
+        saves it to pending_readings.jsonl and sends it. Keys: local_id, horse_code, body_temp,
+        surface_temp, air_temp, humidity, recorded_at (ISO text), method ('fingerprint' | 'qr')."""
+        if _from_script:
+            self.external_readings = True
+        self.inbound.put(dict(reading))
+
+    def _reading_loop(self):
+        pending = self._load_pending()
+        if pending:
+            print(time.strftime("%H:%M:%S"), f"Web link: {len(pending)} unsent reading(s) from before, sending them")
+        wait, warned_09 = 0.0, False
+        while True:
+            changed = False
+            try:                                            # wait for new readings (or the next retry)
+                pending.append(self.inbound.get(timeout=max(1.0, wait)))
+                changed = True
+                while True:
+                    pending.append(self.inbound.get_nowait())
             except queue.Empty:
+                pass
+            if len(pending) > PENDING_MAX:
+                del pending[:len(pending) - PENDING_MAX]
+            if changed:
+                self._save_pending(pending)                 # on disk BEFORE trying the network
+            if not pending:
+                wait = 0.0
+                continue
+            sent_any = False
+            while pending:
+                r = pending[0]
+                try:
+                    self.rpc("device_submit_reading", p_device_key=self.device_key,
+                             p_horse_code=r.get("horse_code"), p_body_temp=r.get("body_temp"),
+                             p_surface_temp=r.get("surface_temp"), p_env_temp=r.get("air_temp"),
+                             p_humidity=r.get("humidity"), p_recorded_at=r.get("recorded_at"),
+                             p_method=r.get("method"), p_local_id=r.get("local_id"))
+                except urllib.error.HTTPError as e:
+                    text = e.read().decode(errors="replace")
+                    if e.code == 404 and "device_submit_reading" in text:     # update 09 not run yet
+                        if not warned_09:
+                            print(time.strftime("%H:%M:%S"), "Web link: readings wait for supabase/09_pi_readings.sql "
+                                  "(run it in Supabase); they are kept in pending_readings.jsonl")
+                            warned_09 = True
+                        wait = 60.0
+                        break
+                    try:
+                        sqlstate = str(json.loads(text).get("code", ""))
+                    except ValueError:
+                        sqlstate = ""
+                    # the website refuses THIS reading for good: unknown/deleted horse (P0002), value out of
+                    # range (23xxx check) or bad value (22xxx). Anything else (wrong key, server down) = retry.
+                    if sqlstate == "P0002" or sqlstate[:2] in ("22", "23"):
+                        code = r.get("horse_code")
+                        if "Unknown horse code" in text:
+                            if code not in self.dead_codes:
+                                print(time.strftime("%H:%M:%S"), f"Web link: the website doesn't know {code} - "
+                                      f"its readings stay on the Pi only (see rejected_readings.jsonl)")
+                            self.dead_codes.add(code)
+                        else:
+                            print(time.strftime("%H:%M:%S"), f"Web link: reading {r.get('local_id')} refused: {text[:160]}")
+                        self._reject(r, text)
+                        pending.pop(0)
+                        sent_any = True
+                        continue
+                    wait = min(60.0, max(5.0, wait * 2))    # wrong key / server trouble: retry later
+                    break
+                except Exception:                           # no internet: retry later, slower and slower
+                    wait = min(60.0, max(5.0, wait * 2))
+                    break
+                pending.pop(0)
+                sent_any = True
+                self.readings_sent += 1
+                wait, warned_09 = 0.0, False
+            if sent_any:
+                self._save_pending(pending)
+
+    def _load_pending(self):
+        out = []
+        try:
+            with open(PENDING_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            out.append(json.loads(line))
+                        except ValueError:
+                            pass                            # half-written last line after a power cut
+        except FileNotFoundError:
+            pass
+        return out
+
+    def _save_pending(self, pending):
+        try:
+            if not pending:
+                PENDING_FILE.unlink(missing_ok=True)
                 return
-            try:
-                self.rpc("submit_reading", p_device_key=self.device_key, p_horse_code=r["code"],
-                         p_body_temp=r["body"], p_env_temp=r["air"], p_humidity=r["rh"])
-                sent += 1
-            except urllib.error.HTTPError as e:
-                text = e.read().decode(errors="replace")
-                if "Unknown horse code" in text:   # horse removed on the website: drop, don't retry forever
-                    if r["code"] not in self.dead_codes:
-                        print(time.strftime("%H:%M:%S"), f"Web link: the website doesn't know {r['name']} "
-                              f"({r['code']}) any more - its readings are kept on the Pi only")
-                    self.dead_codes.add(r["code"])
-                    continue
-                self.readings.put(r)
-                raise RuntimeError(f"{e.code} {text[:160]}")
-            except Exception:
-                self.readings.put(r)               # offline: keep it, try again later
-                raise
+            tmp = PENDING_FILE.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                for r in pending:
+                    f.write(json.dumps(r) + "\n")
+            os.replace(tmp, PENDING_FILE)                   # all or nothing, even on a power cut
+        except OSError as e:
+            print(f"Web link: can't save {PENDING_FILE.name} ({e})")
+
+    def _reject(self, r, why):
+        try:
+            with open(REJECTED_FILE, "a") as f:
+                f.write(json.dumps({**r, "rejected_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "why": why[:300]}) + "\n")
+        except OSError:
+            pass
 
     # ------------------------------------------------------------ the one call from the monitor script
     def tick(self, g):
@@ -218,6 +316,11 @@ class WebLink:
         per-minute readings and heartbeat details. Never blocks: the network is in the background."""
         args, db = g["args"], g["db"]
         now_t = time.time()
+        if self.external_readings is None:                     # does the script send its own readings?
+            try:
+                self.external_readings = "queue_reading" in Path(g.get("__file__", "")).read_text()
+            except OSError:
+                self.external_readings = False
         for local_name, code in self.poll_results():           # website gave a new horse its ID
             db.execute("UPDATE horses SET horse_code = ? WHERE name = ?", (code, local_name))
             db.commit()
@@ -265,7 +368,8 @@ class WebLink:
                     "identifying": len(t.get("embs", [])) if status == "identifying" else None,
                 })
                 # per-minute reading: only a confidently IDENTIFIED horse that is on the website
-                if status == "identified" and code and temp is not None and code not in self.dead_codes:
+                if (status == "identified" and code and temp is not None and code not in self.dead_codes
+                        and not self.external_readings):
                     self._acc.setdefault(code, {"name": name, "s": []})["s"].append(
                         (float(temp), air, rh))
         if now_t - self._acc_t0 >= UPLOAD_SEC:
@@ -273,12 +377,11 @@ class WebLink:
                 s = a["s"]
                 if len(s) >= MIN_SAMPLES:
                     med = lambda xs: None if not xs else round(sorted(xs)[len(xs) // 2], 2)  # noqa: E731
-                    self.readings.put({"code": code, "name": a["name"], "body": med([x[0] for x in s]),
-                                       "air": med([x[1] for x in s if x[1] is not None]),
-                                       "rh": med([x[2] for x in s if x[2] is not None])})
-            if self.readings.qsize() > 2000:                     # offline for a long time: keep the newest
-                for _ in range(self.readings.qsize() - 2000):
-                    self.readings.get_nowait()
+                    self.queue_reading({"horse_code": code, "body_temp": med([x[0] for x in s]),
+                                        "air_temp": med([x[1] for x in s if x[1] is not None]),
+                                        "humidity": med([x[2] for x in s if x[2] is not None]),
+                                        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                                        "method": "fingerprint"}, _from_script=False)
             self._acc, self._acc_t0 = {}, now_t
         if now_t - self._last_live >= LIVE_SEC:
             state = {"present": bool(g.get("present")), "horses": horses, "mode": mode,
@@ -430,6 +533,18 @@ if __name__ == "__main__":
             print("✓ Connected: the website now shows this Pi as Online.")
             link.rpc("device_update_registration", p_device_key=link.device_key, p_id=0)
             print("✓ Remote registration is installed in the database.")
+            try:                                 # unknown horse code: proves 09 is installed, stores nothing
+                link.rpc("device_submit_reading", p_device_key=link.device_key, p_horse_code="HTM-TEST0000",
+                         p_body_temp=37.5, p_local_id=None)
+            except urllib.error.HTTPError as e9:
+                t9 = e9.read().decode(errors="replace")
+                if "Unknown horse code" in t9:
+                    print("✓ Reading upload (09_pi_readings.sql) is installed.")
+                else:
+                    print(f"✗ Reading upload isn't installed: run supabase/09_pi_readings.sql in Supabase ({e9.code})")
+            if PENDING_FILE.exists():
+                n = sum(1 for line in open(PENDING_FILE) if line.strip())
+                print(f"  {n} reading(s) waiting in {PENDING_FILE.name}: they are sent when thesisv2.py --web runs.")
         except urllib.error.HTTPError as e:
             text = e.read().decode(errors="replace")
             print(f"✗ {e.code}: {text[:300]}")

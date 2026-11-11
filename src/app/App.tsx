@@ -123,6 +123,21 @@ export default function App() {
     }
   }, [liveCode, horses, followCamera]);
 
+  // No live view from the Pi? Follow it through its readings instead: a NEW Pi reading (sent in the last
+  // 3 minutes) switches the Dashboard to that horse.
+  const piReading = live.lastPiReading;
+  const seenReading = useRef<number | null>(null);
+  useEffect(() => {
+    if (!piReading || piReading.id === seenReading.current) return;
+    const isFirst = seenReading.current === null;
+    seenReading.current = piReading.id;
+    if (!isFirst) refreshHorses(); // a new Pi reading: update the horse cards even if realtime is down
+    const recent = Date.now() - new Date(piReading.recorded_at).getTime() < 180000;
+    if (followCamera && !live.fresh && recent && horses.some((h) => h.id === piReading.horse_id)) {
+      setSelectedHorseId(piReading.horse_id);
+    }
+  }, [piReading, followCamera, live.fresh, horses, refreshHorses]);
+
   const changeFollowCamera = useCallback((on: boolean) => {
     setFollowCamera(on);
     followed.current = null;
@@ -294,6 +309,7 @@ export default function App() {
             horse={selectedHorse}
             horses={horses}
             settings={settings}
+            devices={deviceStatus.devices}
             live={live}
             followCamera={followCamera}
             onFollowCameraChange={changeFollowCamera}

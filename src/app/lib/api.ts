@@ -40,7 +40,14 @@ export interface HorseStatus {
   status: HealthStatus;
   last_check: string | null;
   open_alerts: number;
+  // from 09_pi_readings.sql (missing before it is run)
+  current_surface_temp?: number | null;
+  current_humidity?: number | null;
+  current_id_method?: IdMethod | null;
 }
+
+/** How the Pi named the horse for a reading: its fingerprint, or the stall's QR plate */
+export type IdMethod = "fingerprint" | "qr";
 
 export interface Reading {
   id: number;
@@ -48,6 +55,9 @@ export interface Reading {
   body_temp: number;
   env_temp: number | null;
   humidity?: number | null;
+  surface_temp?: number | null;
+  id_method?: IdMethod | null;
+  device_id?: string | null;
   status: HealthStatus;
   recorded_at: string;
 }
@@ -61,6 +71,7 @@ export interface DailySummary {
   min_body_temp: number;
   peak_time: string;
   avg_env_temp: number | null;
+  avg_humidity: number | null;
   status: HealthStatus;
 }
 
@@ -215,23 +226,54 @@ export async function registerHorse(input: { name: string; age: number; normal_t
 }
 
 // ---------- Readings ----------
+const READING_COLS = "id, horse_id, device_id, body_temp, env_temp, humidity, surface_temp, id_method, status, recorded_at";
+const READING_COLS_OLD = "id, horse_id, device_id, body_temp, env_temp, humidity, status, recorded_at"; // before 09
+
+function toReading(r: Record<string, unknown>): Reading {
+  return {
+    ...(r as unknown as Reading),
+    body_temp: Number(r.body_temp),
+    env_temp: num(r.env_temp),
+    humidity: num(r.humidity),
+    surface_temp: num(r.surface_temp),
+    id_method: (r.id_method as IdMethod) ?? null,
+    device_id: (r.device_id as string) ?? null,
+  };
+}
+
+/** Readings query that still works before 09_pi_readings.sql adds surface_temp / id_method. */
+async function selectReadings(build: (cols: string) => PromiseLike<{ data: unknown; error: { message: string } | null }>) {
+  let res = await build(READING_COLS);
+  if (res.error && /surface_temp|id_method|column/i.test(res.error.message)) res = await build(READING_COLS_OLD);
+  return (check(res as { data: Record<string, unknown>[] | null; error: { message: string } | null }) ?? []).map(toReading);
+}
+
+/** The newest `limit` readings of a horse, oldest first. */
 export async function getRecentReadings(horseId: string, limit = 20): Promise<Reading[]> {
-  const rows = check(
-    await supabase
+  const rows = await selectReadings((cols) =>
+    supabase
       .from("temperature_readings")
-      .select("id, horse_id, body_temp, env_temp, humidity, status, recorded_at")
+      .select(cols)
       .eq("horse_id", horseId)
       .order("recorded_at", { ascending: false })
       .limit(limit),
-  ) as Record<string, unknown>[];
-  return rows
-    .map((r) => ({
-      ...(r as unknown as Reading),
-      body_temp: Number(r.body_temp),
-      env_temp: num(r.env_temp),
-      humidity: num(r.humidity),
-    }))
-    .reverse();
+  );
+  return rows.reverse();
+}
+
+/** Every reading of a horse in the last `days` days (max 3000), oldest first: History chart. */
+export async function getReadingsSince(horseId: string, days: number): Promise<Reading[]> {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const rows = await selectReadings((cols) =>
+    supabase
+      .from("temperature_readings")
+      .select(cols)
+      .eq("horse_id", horseId)
+      .gte("recorded_at", since)
+      .order("recorded_at", { ascending: false })
+      .limit(3000),
+  );
+  return rows.reverse();
 }
 
 export async function getDailySummary(horseId: string, days = 7): Promise<DailySummary[]> {
@@ -250,6 +292,7 @@ export async function getDailySummary(horseId: string, days = 7): Promise<DailyS
       peak_body_temp: Number(r.peak_body_temp),
       min_body_temp: Number(r.min_body_temp),
       avg_env_temp: num(r.avg_env_temp),
+      avg_humidity: num(r.avg_humidity),
     }))
     .reverse();
 }
@@ -340,6 +383,9 @@ export interface HorseRecord {
   lastUpdated: string | null;
   photo: string; // public URL, or "" if no photo
   openAlerts: number;
+  surfaceTemperature: number | null; // latest reading's raw coat temperature
+  humidity: number | null; // latest reading's humidity
+  idMethod: IdMethod | null; // latest reading: named by fingerprint or QR plate
 }
 
 export function toHorseRecord(h: HorseStatus): HorseRecord {
@@ -356,6 +402,9 @@ export function toHorseRecord(h: HorseStatus): HorseRecord {
     lastUpdated: h.last_check,
     photo: photoUrl(h.photo_path) ?? "",
     openAlerts: h.open_alerts,
+    surfaceTemperature: num(h.current_surface_temp),
+    humidity: num(h.current_humidity),
+    idMethod: h.current_id_method ?? null,
   };
 }
 
@@ -457,10 +506,12 @@ export async function downloadReadingsCsv(horse: { id: string; name: string } | 
     const text = String(v);
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
-  const header = ["date_time", "horse_name", "horse_code", "body_temp_c", "raw_body_temp_c", "env_temp_c", "humidity_pct", "status"];
+  const header = ["date_time", "horse_name", "horse_code", "body_temp_c", "surface_temp_c", "air_temp_c", "humidity_pct",
+    "id_method", "status", "raw_body_temp_c"];
   const lines = rows.map((r) => {
     const h = (r.horses ?? {}) as { name?: string; horse_code?: string };
-    return [fmt(r.recorded_at), h.name, h.horse_code, r.body_temp, r.raw_body_temp, r.env_temp, r.humidity, r.status]
+    return [fmt(r.recorded_at), h.name, h.horse_code, r.body_temp, r.surface_temp, r.env_temp, r.humidity,
+      r.id_method, r.status, r.raw_body_temp]
       .map(cell)
       .join(",");
   });
@@ -631,4 +682,17 @@ export function toLiveView(deviceId: string, state: Record<string, unknown>, upd
       surface_temp: num(h.surface_temp),
     })),
   };
+}
+
+/** Newest reading sent by a Pi (any horse): the Dashboard follows it when there is no live view. */
+export async function getLatestPiReading(): Promise<{ id: number; horse_id: string; recorded_at: string } | null> {
+  const { data, error } = await supabase
+    .from("temperature_readings")
+    .select("id, horse_id, recorded_at")
+    .not("device_id", "is", null)
+    .order("id", { ascending: false })
+    .limit(1);
+  if (error) return null;
+  const r = (data ?? [])[0] as { id: number; horse_id: string; recorded_at: string } | undefined;
+  return r ? { id: Number(r.id), horse_id: r.horse_id, recorded_at: r.recorded_at } : null;
 }
