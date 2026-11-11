@@ -1,10 +1,13 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Save, Plus, Thermometer, Camera } from 'lucide-react';
 import { PiStatusPanel, type useDeviceStatus } from './PiStatus';
+import { TestAlarmButton } from './FeverAlarm';
+import { ROLE_LABELS, type Permissions } from '../lib/permissions';
 import { addHorse, getDevices, saveCalibration, updateSettings, type Device, type Profile, type Settings as SettingsType } from '../lib/api';
 
 interface SettingsProps {
   profile: Profile | null;
+  can: Permissions;
   settings: SettingsType;
   onSettingsSaved: () => void;
   onHorseAdded: () => void;
@@ -22,9 +25,10 @@ function NoticeBox({ notice }: { notice: Notice }) {
   );
 }
 
-export function Settings({ profile, settings, onSettingsSaved, onHorseAdded, deviceStatus }: SettingsProps) {
-  const isAdmin = profile?.role === 'admin';
-  const canAddHorse = profile?.role === 'admin' || profile?.role === 'caretaker';
+export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded, deviceStatus }: SettingsProps) {
+  // Owners and admins can change settings; caretakers and vets can only view them.
+  const isAdmin = can.manageSettings;
+  const canAddHorse = can.manageHorses;
 
   // Thresholds & monitoring
   const [form, setForm] = useState(settings);
@@ -116,7 +120,7 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded, dev
 
       {!isAdmin && (
         <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 text-lg text-blue-900">
-          You are signed in as <strong className="capitalize">{profile?.role ?? 'user'}</strong>. Only an admin can change thresholds and calibration.
+          You are signed in as <strong>{profile ? ROLE_LABELS[profile.role] : 'user'}</strong>. Only an owner or admin can change settings.
         </div>
       )}
 
@@ -172,7 +176,7 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded, dev
             <p className="text-lg text-gray-600 mt-2">How often the camera should send a temperature</p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <input
               type="checkbox"
               id="soundAlerts"
@@ -182,18 +186,8 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded, dev
               className="w-6 h-6"
             />
             <label htmlFor="soundAlerts" className="text-xl">Enable sound alerts</label>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="emailNotifications"
-              checked={form.email_notifications}
-              onChange={(e) => setForm({ ...form, email_notifications: e.target.checked })}
-              disabled={!isAdmin}
-              className="w-6 h-6"
-            />
-            <label htmlFor="emailNotifications" className="text-xl">Send email notifications</label>
+            <span className="text-lg text-gray-500">(alarm plays on every open screen when a new fever alert arrives)</span>
+            <TestAlarmButton />
           </div>
         </div>
       </div>

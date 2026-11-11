@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, CloudSun } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, CloudSun, Download } from 'lucide-react';
 import type { HorseRecord } from '../App';
-import { getDailySummary, subscribeToChanges, type DailySummary, type Settings } from '../lib/api';
+import { downloadReadingsCsv, getDailySummary, subscribeToChanges, type DailySummary, type Settings } from '../lib/api';
 
 interface HistoryProps {
   horse: HorseRecord | null;
@@ -43,7 +43,7 @@ export function History({ horse, settings }: HistoryProps) {
           <p className="mt-3 text-xl text-gray-600">
             {horse
               ? `No readings recorded for ${horse.name} yet. History builds up as the thermal camera sends readings.`
-              : 'Register a horse first. New readings will be recorded every 3 minutes.'}
+              : 'Register a horse first. History builds up as the thermal camera sends readings.'}
           </p>
         </div>
       </div>
@@ -102,9 +102,12 @@ export function History({ horse, settings }: HistoryProps) {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-4xl mb-2">Temperature History</h1>
-        <p className="text-xl text-gray-600">Horse: {selectedHorse}</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl mb-2">Temperature History</h1>
+          <p className="text-xl text-gray-600">Horse: {selectedHorse}</p>
+        </div>
+        <CsvDownload horse={horse} />
       </div>
 
       {/* Data Analysis */}
@@ -287,6 +290,58 @@ export function History({ horse, settings }: HistoryProps) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** "Download CSV" — every reading (date/time, body, raw, environment, humidity, status) for Excel / Chapter 4. */
+function CsvDownload({ horse }: { horse: HorseRecord }) {
+  const [range, setRange] = useState('7');
+  const [scope, setScope] = useState<'horse' | 'all'>('horse');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const download = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const count = await downloadReadingsCsv(
+        scope === 'horse' ? { id: horse.id, name: horse.name } : null,
+        range === 'all' ? null : Number(range),
+      );
+      setMessage(count === 0 ? 'No readings in that range.' : `Downloaded ${count.toLocaleString()} readings.`);
+    } catch (e) {
+      setMessage(`Download failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const select = 'min-h-12 rounded-lg border-2 border-gray-300 bg-white px-3 text-lg';
+  return (
+    <div className="rounded-xl border-2 border-gray-200 bg-white p-4">
+      <div className="mb-2 text-lg font-semibold">Download readings (CSV for Excel)</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={scope} onChange={(e) => setScope(e.target.value as 'horse' | 'all')} className={select} aria-label="Which horses">
+          <option value="horse">{horse.name} only</option>
+          <option value="all">All horses</option>
+        </select>
+        <select value={range} onChange={(e) => setRange(e.target.value)} className={select} aria-label="Time range">
+          <option value="1">Last 24 hours</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="all">All time</option>
+        </select>
+        <button
+          type="button"
+          onClick={download}
+          disabled={busy}
+          className="flex min-h-12 items-center gap-2 rounded-lg bg-green-600 px-5 text-lg text-white hover:bg-green-700 disabled:opacity-60"
+        >
+          <Download className="h-5 w-5" /> {busy ? 'Preparing…' : 'Download'}
+        </button>
+      </div>
+      {message && <p className="mt-2 text-base text-gray-600">{message}</p>}
     </div>
   );
 }

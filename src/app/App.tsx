@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { Home, History, Bell, Users, ScanFace, Settings as SettingsIcon, LogOut } from "lucide-react";
+import { Home, History, Bell, Users, ScanFace, Settings as SettingsIcon, LogOut, UserCog, Clock } from "lucide-react";
 import { Dashboard } from "./components/Dashboard";
 import { History as HistoryView } from "./components/History";
 import { Alerts } from "./components/Alerts";
@@ -9,6 +9,9 @@ import { Register } from "./components/Register";
 import { Settings } from "./components/Settings";
 import { Login } from "./components/Login";
 import { PiStatusBadge, useDeviceStatus } from "./components/PiStatus";
+import { Users as UsersView } from "./components/Users";
+import { FeverAlarm } from "./components/FeverAlarm";
+import { permissionsFor, ROLE_LABELS } from "./lib/permissions";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import {
   DEFAULT_SETTINGS,
@@ -23,18 +26,21 @@ import {
 
 export type { HorseRecord } from "./lib/api";
 
-type View = "dashboard" | "history" | "alerts" | "horses" | "register" | "settings";
+type View = "dashboard" | "history" | "alerts" | "horses" | "register" | "settings" | "users";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [currentView, setCurrentView] = useState<View>("dashboard");
   const [horses, setHorses] = useState<HorseRecord[]>([]);
   const [selectedHorseId, setSelectedHorseId] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
   const [loadError, setLoadError] = useState("");
-  const deviceStatus = useDeviceStatus(Boolean(session));
+  const can = permissionsFor(profile);
+  const approved = Boolean(profile?.approved);
+  const deviceStatus = useDeviceStatus(Boolean(session) && approved);
 
   const selectedHorse = horses.find((horse) => horse.id === selectedHorseId) ?? null;
 
@@ -70,14 +76,26 @@ export default function App() {
     }
   }, []);
 
+  // Who is signed in (role + approval). Re-check when a different user signs in.
+  const userId = session?.user.id;
   useEffect(() => {
-    if (!session) return;
-    getMyProfile().then(setProfile).catch(() => setProfile(null));
+    setProfile(null);
+    setProfileLoaded(false);
+    setCurrentView("dashboard");
+    if (!userId) return;
+    getMyProfile()
+      .then(setProfile)
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoaded(true));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!session || !approved) return;
     refreshHorses();
     refreshSettings();
     // New readings, alerts or horses → refresh the list instantly (real-time)
     return subscribeToChanges("app", ["temperature_readings", "alerts", "horses"], () => refreshHorses());
-  }, [session, refreshHorses, refreshSettings]);
+  }, [session, approved, refreshHorses, refreshSettings]);
 
   const handleRegisteredHorse = async (horse: HorseRecord) => {
     await refreshHorses();
@@ -103,18 +121,65 @@ export default function App() {
     return <div className="flex min-h-screen items-center justify-center text-2xl text-gray-600">Loading…</div>;
   }
   if (!session) return <Login />;
+  if (!profileLoaded) {
+    return <div className="flex min-h-screen items-center justify-center text-2xl text-gray-600">Loading…</div>;
+  }
+  if (!approved) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-8 text-center">
+          <Clock className="mx-auto h-14 w-14 text-yellow-700" />
+          <h1 className="mt-4 text-3xl">Waiting for approval</h1>
+          <p className="mt-4 text-xl text-gray-700">
+            Your account <strong>{session.user.email}</strong> was created. An admin needs to approve it and choose
+            your role before you can see the horses.
+          </p>
+          <p className="mt-3 text-lg text-gray-600">Ask your admin to open <strong>Users</strong> on this website.</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setProfileLoaded(false);
+                getMyProfile().then(setProfile).finally(() => setProfileLoaded(true));
+              }}
+              className="rounded-xl bg-green-600 px-6 py-3 text-xl text-white hover:bg-green-700"
+            >
+              Check again
+            </button>
+            <button
+              type="button"
+              onClick={() => supabase.auth.signOut()}
+              className="flex items-center gap-2 rounded-xl border-2 border-gray-300 bg-white px-6 py-3 text-xl hover:bg-gray-100"
+            >
+              <LogOut className="h-5 w-5" /> Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const navigationItems = [
     { id: "dashboard" as View, label: "Dashboard", icon: Home },
     { id: "history" as View, label: "History", icon: History },
     { id: "alerts" as View, label: "Alerts", icon: Bell },
     { id: "horses" as View, label: "Horses", icon: Users },
-    { id: "register" as View, label: "Register", icon: ScanFace },
+    ...(can.registerHorses ? [{ id: "register" as View, label: "Register", icon: ScanFace }] : []),
     { id: "settings" as View, label: "Settings", icon: SettingsIcon },
+    ...(can.manageUsers ? [{ id: "users" as View, label: "Users", icon: UserCog }] : []),
   ];
+  // If the role doesn't allow the current page, fall back to the Dashboard
+  const view: View = navigationItems.some((item) => item.id === currentView) ? currentView : "dashboard";
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <FeverAlarm
+        enabled={approved}
+        soundOn={settings.sound_alerts}
+        horses={horses}
+        onOpenAlerts={() => setCurrentView("alerts")}
+      />
+
       {/* Header */}
       <header className="bg-green-600 text-white px-6 py-6 border-b-4 border-green-700">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -134,7 +199,7 @@ export default function App() {
             </div>
             <div className="border-l-2 border-green-400 pl-6">
               <div className="text-lg">{profile?.full_name || session.user.email}</div>
-              <div className="text-base capitalize opacity-90">{profile?.role ?? ""}</div>
+              <div className="text-base opacity-90">{profile ? ROLE_LABELS[profile.role] : ""}</div>
               <button
                 type="button"
                 onClick={() => supabase.auth.signOut()}
@@ -152,7 +217,7 @@ export default function App() {
         <div className="flex gap-2 p-4 overflow-x-auto">
           {navigationItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentView === item.id;
+            const isActive = view === item.id;
 
             return (
               <button
@@ -180,35 +245,45 @@ export default function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto">
-        {currentView === "dashboard" && (
-          <Dashboard horse={selectedHorse} settings={settings} onRegister={() => setCurrentView("register")} />
+        {view === "dashboard" && (
+          <Dashboard
+            horse={selectedHorse}
+            settings={settings}
+            onRegister={can.registerHorses ? () => setCurrentView("register") : undefined}
+          />
         )}
-        {currentView === "history" && <HistoryView horse={selectedHorse} settings={settings} />}
-        {currentView === "alerts" && <Alerts selectedHorse={selectedHorse?.name ?? ""} settings={settings} />}
-        {currentView === "horses" && (
+        {view === "history" && <HistoryView horse={selectedHorse} settings={settings} />}
+        {view === "alerts" && (
+          <Alerts selectedHorse={selectedHorse?.name ?? ""} settings={settings} canHandle={can.handleAlerts} />
+        )}
+        {view === "horses" && (
           <Horses
             horses={horses}
             selectedHorseId={selectedHorseId}
             settings={settings}
+            can={can}
             onSelectHorse={setSelectedHorseId}
-            onRegister={() => setCurrentView("register")}
+            onRegister={can.registerHorses ? () => setCurrentView("register") : undefined}
+            onChanged={refreshHorses}
           />
         )}
-        {currentView === "register" && (
+        {view === "register" && (
           <Register
             onRegistered={handleRegisteredHorse}
             onViewDashboard={() => setCurrentView("dashboard")}
           />
         )}
-        {currentView === "settings" && (
+        {view === "settings" && (
           <Settings
             profile={profile}
+            can={can}
             settings={settings}
             onSettingsSaved={refreshSettings}
             onHorseAdded={refreshHorses}
             deviceStatus={deviceStatus}
           />
         )}
+        {view === "users" && session && <UsersView myId={session.user.id} />}
       </main>
 
       {/* Footer */}

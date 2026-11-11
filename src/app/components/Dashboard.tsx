@@ -8,7 +8,8 @@ import { classify, getRecentReadings, subscribeToChanges, type Reading, type Set
 interface DashboardProps {
   horse: HorseRecord | null;
   settings: Settings;
-  onRegister: () => void;
+  /** undefined when this user's role can't register horses */
+  onRegister?: () => void;
 }
 
 const formatTime = (iso: string) => {
@@ -75,15 +76,19 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
           <div className="mb-4 text-6xl">🐎</div>
           <h1 className="text-4xl">No horse to monitor yet</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
-            Register your first horse using the live camera. The new horse will appear here automatically.
+            {onRegister
+              ? 'Register your first horse using the live camera. The new horse will appear here automatically.'
+              : 'No horses have been registered yet. An owner or admin can register them.'}
           </p>
-          <button
-            type="button"
-            onClick={onRegister}
-            className="mt-7 rounded-xl bg-green-600 px-8 py-4 text-2xl text-white hover:bg-green-700"
-          >
-            Register a Horse
-          </button>
+          {onRegister && (
+            <button
+              type="button"
+              onClick={onRegister}
+              className="mt-7 rounded-xl bg-green-600 px-8 py-4 text-2xl text-white hover:bg-green-700"
+            >
+              Register a Horse
+            </button>
+          )}
         </div>
       </div>
     );

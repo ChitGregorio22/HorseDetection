@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, BellOff, Check, Phone, X } from "lucide-react";
+import { AlertTriangle, BellOff, Check } from "lucide-react";
 import { getAlerts, setAlertStatus, subscribeToChanges, type Alert, type Settings } from "../lib/api";
 
 interface AlertsProps {
   selectedHorse: string;
   settings: Settings;
+  /** false = this role can only view alerts */
+  canHandle: boolean;
 }
 
 const formatDateTime = (iso: string) =>
   new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 
-export function Alerts({ selectedHorse, settings }: AlertsProps) {
+export function Alerts({ selectedHorse, settings, canHandle }: AlertsProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -63,24 +65,19 @@ export function Alerts({ selectedHorse, settings }: AlertsProps) {
               <p className="text-4xl">Temperature: {activeAlert.temperature.toFixed(1)}°C</p>
               <p className="text-2xl">Time: {formatDateTime(activeAlert.created_at)}</p>
             </div>
-            <div className="mt-6 flex flex-wrap gap-4">
-              <a
-                href="tel:"
-                className="flex items-center gap-3 rounded-xl bg-white px-8 py-4 text-2xl text-red-600 hover:bg-gray-100"
-              >
-                <Phone className="h-6 w-6" />
-                Call Vet
-              </a>
-              <button
-                type="button"
-                onClick={() => changeStatus(activeAlert, "acknowledged")}
-                disabled={busyId === activeAlert.id}
-                className="flex items-center gap-3 rounded-xl bg-red-800 px-8 py-4 text-2xl text-white hover:bg-red-900 disabled:opacity-70"
-              >
-                <X className="h-6 w-6" />
-                Acknowledge
-              </button>
-            </div>
+            {canHandle && (
+              <div className="mt-6 flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  onClick={() => changeStatus(activeAlert, "acknowledged")}
+                  disabled={busyId === activeAlert.id}
+                  className="flex items-center gap-3 rounded-xl bg-white px-8 py-4 text-2xl text-red-700 hover:bg-red-50 disabled:opacity-70"
+                >
+                  <Check className="h-6 w-6" />
+                  Acknowledge
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -146,7 +143,7 @@ export function Alerts({ selectedHorse, settings }: AlertsProps) {
                     >
                       {alert.status.toUpperCase()}
                     </span>
-                    {isAcknowledged && (
+                    {isAcknowledged && canHandle && (
                       <button
                         type="button"
                         onClick={() => changeStatus(alert, "resolved")}
@@ -169,7 +166,7 @@ export function Alerts({ selectedHorse, settings }: AlertsProps) {
         <div className="space-y-2 text-xl">
           <p>🟡 Warning threshold: {settings.warning_threshold.toFixed(1)}°C</p>
           <p>🔴 Fever threshold: {settings.fever_threshold.toFixed(1)}°C</p>
-          <p>⏰ Temperature update interval: Every 3 minutes</p>
+          <p>🔔 Sound alerts: {settings.sound_alerts ? "On" : "Off"}</p>
         </div>
       </div>
     </div>

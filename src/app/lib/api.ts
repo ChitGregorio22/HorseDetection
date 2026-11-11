@@ -12,6 +12,8 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   phone: string | null;
+  /** false = new sign-up waiting for an admin to approve it */
+  approved: boolean;
 }
 
 export interface Settings {
@@ -97,8 +99,19 @@ export const DEFAULT_SETTINGS: Settings = {
 // numeric columns arrive from Postgres as numbers or strings — normalise them
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
+/** Turns database error messages into plain sentences for the screen. */
+export function friendlyError(message: string) {
+  if (message.includes("horses_active_name_unique")) {
+    return "A horse with this name is already registered. Each name can only be used for one horse.";
+  }
+  if (/row-level security|permission denied|Only an admin/i.test(message)) {
+    return "Your account doesn't have permission to do this.";
+  }
+  return message;
+}
+
 function check<T>(result: { data: T | null; error: { message: string } | null }): T {
-  if (result.error) throw new Error(result.error.message);
+  if (result.error) throw new Error(friendlyError(result.error.message));
   return result.data as T;
 }
 
@@ -128,7 +141,13 @@ export function timeAgo(iso: string | null) {
 export async function getMyProfile(): Promise<Profile | null> {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
-  return check(await supabase.from("profiles").select("id, full_name, role, phone").eq("id", auth.user.id).single());
+  const result = await supabase.from("profiles").select("id, full_name, role, phone, approved").eq("id", auth.user.id).single();
+  if (result.error?.message.includes("approved")) {
+    // database update 05 not run yet → everyone counts as approved, like before
+    const old = check(await supabase.from("profiles").select("id, full_name, role, phone").eq("id", auth.user.id).single());
+    return { ...(old as unknown as Omit<Profile, "approved">), approved: true };
+  }
+  return check(result) as Profile;
 }
 
 // ---------- Settings ----------
@@ -156,7 +175,7 @@ export async function updateSettings(s: Settings) {
     throw new Error("The database needs the live camera update. Run supabase/03_live_camera.sql in the Supabase SQL Editor, then save again.");
   }
   const rows = check(result);
-  if (!rows || rows.length === 0) throw new Error("Only an admin can change settings.");
+  if (!rows || rows.length === 0) throw new Error("Only an owner or admin can change settings.");
 }
 
 // ---------- Horses ----------
@@ -278,7 +297,7 @@ export async function saveCalibration(deviceId: string, offset: number) {
 export function subscribeToChanges(
   name: string,
   tables: Array<"temperature_readings" | "alerts" | "horses">,
-  onChange: (table: string, row: Record<string, unknown>) => void,
+  onChange: (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void,
   horseId?: string,
 ) {
   let channel: RealtimeChannel = supabase.channel(`${name}-${Math.random().toString(36).slice(2)}`);
@@ -291,7 +310,7 @@ export function subscribeToChanges(
         table,
         ...(horseId && table !== "horses" ? { filter: `horse_id=eq.${horseId}` } : {}),
       },
-      (payload) => onChange(table, (payload.new ?? {}) as Record<string, unknown>),
+      (payload) => onChange(table, (payload.new ?? {}) as Record<string, unknown>, payload.eventType),
     );
   }
   channel.subscribe();
@@ -357,4 +376,99 @@ export async function getDeviceStatus(): Promise<DeviceStatus[] | null> {
     throw new Error(error.message);
   }
   return (data ?? []) as DeviceStatus[];
+}
+
+// ---------- Edit / remove horses (owner + admin) ----------
+export async function updateHorse(id: string, changes: { name: string; age: number | null; normal_temp: number }) {
+  const rows = check(await supabase.from("horses").update(changes).eq("id", id).select("id"));
+  if (!rows || rows.length === 0) throw new Error("Your account doesn't have permission to do this.");
+}
+
+/** Remove from monitoring (keeps all readings) or restore. */
+export async function setHorseActive(id: string, active: boolean) {
+  const rows = check(await supabase.from("horses").update({ is_active: active }).eq("id", id).select("id"));
+  if (!rows || rows.length === 0) throw new Error("Your account doesn't have permission to do this.");
+}
+
+/** Admin only: deletes the horse AND all its readings and alerts. */
+export async function deleteHorsePermanently(id: string) {
+  const rows = check(await supabase.from("horses").delete().eq("id", id).select("id"));
+  if (!rows || rows.length === 0) throw new Error("Only an admin can delete a horse permanently.");
+}
+
+export async function getRemovedHorses(): Promise<{ id: string; name: string; horse_code: string; updated_at: string }[]> {
+  return check(
+    await supabase.from("horses").select("id, name, horse_code, updated_at").eq("is_active", false).order("name"),
+  ) as { id: string; name: string; horse_code: string; updated_at: string }[];
+}
+
+// ---------- Users (admin) ----------
+export interface UserAccount {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  approved: boolean;
+  created_at: string;
+  last_sign_in_at: string | null;
+}
+
+export async function adminListUsers(): Promise<UserAccount[]> {
+  return check(await supabase.rpc("admin_list_users")) as UserAccount[];
+}
+
+export async function adminUpdateUser(id: string, changes: { role?: UserRole; approved?: boolean }) {
+  const rows = check(await supabase.from("profiles").update(changes).eq("id", id).select("id"));
+  if (!rows || rows.length === 0) throw new Error("Only an admin can change user roles or approval.");
+}
+
+// ---------- CSV export (History) ----------
+/** Downloads every reading for one horse (or all horses) in the last `days` days (null = all time). */
+export async function downloadReadingsCsv(horse: { id: string; name: string } | null, days: number | null) {
+  const pageSize = 1000; // Supabase returns at most 1000 rows per request
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let query = supabase
+      .from("temperature_readings")
+      .select("*, horses(name, horse_code)")
+      .order("recorded_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (horse) query = query.eq("horse_id", horse.id);
+    if (days) query = query.gte("recorded_at", new Date(Date.now() - days * 86400000).toISOString());
+    const page = check(await query) as Record<string, unknown>[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  const fmt = (iso: unknown) => {
+    const d = new Date(String(iso));
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  const cell = (v: unknown) => {
+    if (v === null || v === undefined) return "";
+    const text = String(v);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const header = ["date_time", "horse_name", "horse_code", "body_temp_c", "raw_body_temp_c", "env_temp_c", "humidity_pct", "status"];
+  const lines = rows.map((r) => {
+    const h = (r.horses ?? {}) as { name?: string; horse_code?: string };
+    return [fmt(r.recorded_at), h.name, h.horse_code, r.body_temp, r.raw_body_temp, r.env_temp, r.humidity, r.status]
+      .map(cell)
+      .join(",");
+  });
+  const csv = "\uFEFF" + [header.join(","), ...lines].join("\r\n"); // BOM so Excel shows °C/ñ correctly
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const today = new Date().toISOString().slice(0, 10);
+  const who = horse ? horse.name.replace(/[^a-z0-9]+/gi, "-") : "all-horses";
+  link.href = url;
+  link.download = `temperature-readings_${who}_${days ? `last-${days}-days` : "all-time"}_${today}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return rows.length;
 }

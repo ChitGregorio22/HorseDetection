@@ -57,15 +57,22 @@ In Supabase → **Authentication**:
 2. **URL Configuration → Site URL**: paste your Vercel link (e.g. `https://horse-thermal-monitor.vercel.app`), then **Save**.
 
 ## Step 5: Create your account and make yourself admin
-1. Open your Vercel link → **No account yet? Sign up** → create your account.
+1. Open your Vercel link → **No account yet? Sign up** → create your account. You'll see **"Waiting for approval"**. That's normal.
 2. In Supabase → **SQL Editor**, run this with your email:
    ```sql
-   update public.profiles set role = 'admin'
+   update public.profiles set role = 'admin', approved = true
    where id = (select id from auth.users where email = 'you@example.com');
    ```
-3. On the website, **Sign out**, then sign in again. The header now shows **Admin**.
+3. On the website, click **Check again** (or sign out and in). The header now shows **Admin**.
 
-Other group members can sign up too. They start as **caretaker** (can register horses and handle alerts). Change roles with the same SQL using `'caretaker'`, `'veterinarian'`, `'owner'` or `'admin'`.
+From then on, everyone else just signs up, and you approve them and pick their role on the **Users** page. No more SQL.
+
+| Role | Can do |
+|---|---|
+| **Admin** | Everything, including the Users page (approve accounts, change roles) and deleting horses permanently |
+| **Owner** | Settings and thresholds, calibration, live camera, register / edit / remove horses |
+| **Caretaker** | View Dashboard, History, Alerts, Horses; acknowledge and resolve alerts; download CSV |
+| **Veterinarian** | Same as caretaker |
 
 ## Step 6: Try it
 - **Horses** shows the demo horses (Thunder, Lightning, Storm, Blaze). Thunder has a fever.
@@ -102,6 +109,9 @@ The header shows **Raspberry Pi: Online / Offline** on every page, and **Setting
 2. Upload the updated files to GitHub.
 3. On the Pi, set up `raspi/heartbeat.py` (see `raspi/RASPI-CAMERA-GUIDE.md` → *Connection indicator*).
 
+## Update 5: roles, approval, edit horses, CSV, sound alerts
+In Supabase → **SQL Editor**, run `supabase/05_roles_and_approval.sql` once. Existing accounts stay as they are; new sign-ups wait for approval.
+
 ---
 
 ## Troubleshooting
@@ -111,8 +121,8 @@ The header shows **Raspberry Pi: Online / Offline** on every page, and **Setting
 | "Invalid login credentials" | Wrong password, or the account was never created. Sign up first. |
 | "Email not confirmed" | Turn off **Confirm email** (Step 4), or click the link in the email. |
 | "Could not load data… permission denied" | Run `01_schema.sql` in Supabase if you haven't. |
-| Settings won't save | Only an **admin** can change settings (Step 5). |
-| Photo upload fails | Your account must be admin or caretaker. |
+| Settings won't save | Only an **owner** or **admin** can change settings. |
+| Photo upload fails | Your account must be owner or admin. |
 | Camera won't open | Allow camera access in the browser. It only works on the `https://` Vercel link. |
 | Build fails "ERESOLVE" | Add a file named `.npmrc` to the repository containing `legacy-peer-deps=true`. |
 | Site stopped working after a week | Free Supabase projects pause when unused. Open the Supabase dashboard and click **Restore**. Check this before your defense. |
