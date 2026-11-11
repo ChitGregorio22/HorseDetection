@@ -131,8 +131,9 @@ export default function App() {
           <Clock className="mx-auto h-14 w-14 text-yellow-700" />
           <h1 className="mt-4 text-3xl">Waiting for approval</h1>
           <p className="mt-4 text-xl text-gray-700">
-            Your account <strong>{session.user.email}</strong> was created. An admin needs to approve it and choose
-            your role before you can see the horses.
+            Your account <strong>{session.user.email}</strong>
+            {profile ? <> (signed up as <strong>{ROLE_LABELS[profile.role]}</strong>)</> : null} was created. An admin
+            needs to approve it before you can see the horses.
           </p>
           <p className="mt-3 text-lg text-gray-600">Ask your admin to open <strong>Users</strong> on this website.</p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">

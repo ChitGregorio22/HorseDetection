@@ -112,6 +112,9 @@ The header shows **Raspberry Pi: Online / Offline** on every page, and **Setting
 ## Update 5: roles, approval, edit horses, CSV, sound alerts
 In Supabase → **SQL Editor**, run `supabase/05_roles_and_approval.sql` once. Existing accounts stay as they are; new sign-ups wait for approval.
 
+## Update 6: choose a role when signing up
+In Supabase → **SQL Editor**, run `supabase/06_signup_role.sql` once. The Sign Up form then asks for **Owner, Caretaker or Veterinarian**. The account still waits for an admin to approve it on the **Users** page, where the chosen role is already selected.
+
 ---
 
 ## Troubleshooting

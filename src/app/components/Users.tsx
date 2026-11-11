@@ -109,6 +109,9 @@ export function Users({ myId }: { myId: string }) {
                   <div>
                     <div className="text-xl">{user.full_name || '(no name)'}</div>
                     <div className="text-lg text-gray-600">{user.email} · signed up {timeAgo(user.created_at)}</div>
+                    <div className="mt-1 inline-block rounded-lg bg-yellow-100 px-3 py-1 text-base text-yellow-900">
+                      Signed up as <strong>{ROLE_LABELS[user.role]}</strong>. Change it below if needed.
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     {roleSelect(user)}

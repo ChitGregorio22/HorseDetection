@@ -1,30 +1,43 @@
 import { FormEvent, useState } from "react";
-import { LogIn, UserPlus } from "lucide-react";
+import { Briefcase, HeartPulse, LogIn, Stethoscope, UserPlus } from "lucide-react";
 import { supabase } from "../lib/supabase";
+
+type SignupRole = "owner" | "caretaker" | "veterinarian";
+
+const SIGNUP_ROLES: { value: SignupRole; label: string; description: string; icon: typeof Briefcase }[] = [
+  { value: "owner", label: "Owner", description: "Manage settings and horses", icon: Briefcase },
+  { value: "caretaker", label: "Caretaker", description: "Monitor horses and alerts", icon: HeartPulse },
+  { value: "veterinarian", label: "Veterinarian", description: "Monitor horses and alerts", icon: Stethoscope },
+];
 
 export function Login() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState<SignupRole | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (mode === "signup" && !role) {
+      setMessage({ kind: "error", text: "Choose your role: Owner, Caretaker or Veterinarian." });
+      return;
+    }
     setBusy(true);
     setMessage(null);
 
     const result =
       mode === "signin"
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+        : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName.trim(), role } } });
 
     setBusy(false);
     if (result.error) {
       setMessage({ kind: "error", text: result.error.message });
     } else if (mode === "signup" && !result.data.session) {
-      setMessage({ kind: "info", text: "Account created. Check your email to confirm, then sign in." });
+      setMessage({ kind: "info", text: "Account created. Check your email to confirm, then sign in. An admin will approve your account." });
       setMode("signin");
     }
   };
@@ -46,6 +59,44 @@ export function Login() {
               <label htmlFor="fullName" className="mb-2 block text-lg font-semibold">Full name</label>
               <input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} required className={inputClass} />
             </div>
+          )}
+
+          {mode === "signup" && (
+            <fieldset>
+              <legend className="mb-2 block text-lg font-semibold">I am a…</legend>
+              <div className="grid grid-cols-1 gap-2">
+                {SIGNUP_ROLES.map((option) => {
+                  const Icon = option.icon;
+                  const selected = role === option.value;
+                  return (
+                    <label
+                      key={option.value}
+                      className={`flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 ${
+                        selected ? "border-green-600 bg-green-50 ring-4 ring-green-100" : "border-gray-300 bg-white hover:border-green-400"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="role"
+                        value={option.value}
+                        checked={selected}
+                        onChange={() => {
+                          setRole(option.value);
+                          setMessage(null);
+                        }}
+                        className="h-5 w-5 accent-green-600"
+                      />
+                      <Icon className={`h-7 w-7 ${selected ? "text-green-700" : "text-gray-500"}`} />
+                      <span>
+                        <span className="block text-xl">{option.label}</span>
+                        <span className="block text-base text-gray-600">{option.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-base text-gray-600">An admin approves every new account before it can be used.</p>
+            </fieldset>
           )}
           <div>
             <label htmlFor="email" className="mb-2 block text-lg font-semibold">Email</label>
