@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, CloudSun, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from 'recharts';
 import type { HorseRecord } from '../App';
+import { LiveCamera } from './LiveCamera';
 import { classify, getRecentReadings, subscribeToChanges, type Reading, type Settings } from '../lib/api';
 
 interface DashboardProps {
@@ -59,11 +60,19 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
   const envTemp = latest?.env_temp ?? horse?.envTemperature ?? null;
   const normalTemp = horse?.normalTemperature ?? 37.2;
 
+  const camera = (
+    <LiveCamera
+      url={settings.camera_stream_url}
+      label={horse ? `Monitoring: ${horse.name}` : undefined}
+    />
+  );
+
   if (!horse) {
     return (
-      <div className="p-6">
-        <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
-          <div className="mb-5 text-7xl">🐎</div>
+      <div className="p-6 space-y-6">
+        {camera}
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 py-10 text-center">
+          <div className="mb-4 text-6xl">🐎</div>
           <h1 className="text-4xl">No horse to monitor yet</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
             Register your first horse using the live camera. The new horse will appear here automatically.
@@ -82,9 +91,10 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
 
   if (!loading && !latest && horse.currentTemperature == null) {
     return (
-      <div className="p-6">
-        <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
-          <div className="mb-5 text-7xl">🌡️</div>
+      <div className="p-6 space-y-6">
+        {camera}
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 py-10 text-center">
+          <div className="mb-4 text-6xl">🌡️</div>
           <h1 className="text-4xl">Waiting for {horse.name}'s first reading</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
             Scan {horse.name}'s QR tag with the thermal camera. The temperature will appear here automatically.
@@ -135,44 +145,40 @@ export function Dashboard({ horse, settings, onRegister }: DashboardProps) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Main Temperature Display */}
+      {/* Live Camera (main panel) + current temperature beside it */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`lg:col-span-2 ${status.bg} ${status.border} border-4 rounded-2xl p-8`}>
-          <div className="space-y-4">
+        <div className="lg:col-span-2">{camera}</div>
+
+        <div className="flex flex-col gap-4">
+          {/* Body Temperature */}
+          <div className={`${status.bg} ${status.border} border-4 rounded-2xl p-6`}>
             <div className="flex items-center gap-3">
-              <Activity className={`${status.color} w-10 h-10`} />
-              <h1 className="text-4xl">Horse: {horse.name}</h1>
+              <Activity className={`${status.color} w-8 h-8`} />
+              <h1 className="text-3xl">{horse.name}</h1>
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-baseline gap-4">
-                <span className="text-7xl tabular-nums">{currentTemp.toFixed(1)}°C</span>
-                <span className={`${status.color} text-4xl px-6 py-2 rounded-lg ${status.bg} border-2 ${status.border}`}>
-                  {status.text}
-                </span>
-              </div>
+            <div className="mt-3 text-6xl tabular-nums">{currentTemp.toFixed(1)}°C</div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className={`${status.color} text-2xl px-4 py-1 rounded-lg ${status.bg} border-2 ${status.border}`}>
+                {status.text}
+              </span>
+              <span className="text-lg text-gray-600">Body Temperature</span>
             </div>
-
             {status.text !== 'NORMAL' && (
-              <div className={`${status.color} flex items-center gap-2 text-2xl mt-4`}>
-                <AlertTriangle className="w-8 h-8" />
-                <span>
-                  {status.text === 'FEVER' ? 'Needs Immediate Attention' : 'Monitor Closely'}
-                </span>
+              <div className={`${status.color} mt-4 flex items-center gap-2 text-xl`}>
+                <AlertTriangle className="w-7 h-7" />
+                <span>{status.text === 'FEVER' ? 'Needs Immediate Attention' : 'Monitor Closely'}</span>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Environment Temperature */}
-        <div className="bg-blue-50 border-4 border-blue-600 rounded-2xl p-8">
-          <div className="space-y-4">
+          {/* Environment Temperature */}
+          <div className="bg-blue-50 border-4 border-blue-600 rounded-2xl p-6">
             <div className="flex items-center gap-3">
-              <CloudSun className="text-blue-600 w-10 h-10" />
+              <CloudSun className="text-blue-600 w-8 h-8" />
               <h2 className="text-2xl">Environment</h2>
             </div>
-            <div className="text-6xl tabular-nums text-blue-600">{envTemp == null ? '—' : `${envTemp.toFixed(1)}°C`}</div>
-            <div className="text-xl text-blue-700">Ambient Temperature</div>
+            <div className="mt-3 text-5xl tabular-nums text-blue-600">{envTemp == null ? '—' : `${envTemp.toFixed(1)}°C`}</div>
+            <div className="mt-2 text-lg text-blue-700">Ambient Temperature</div>
           </div>
         </div>
       </div>

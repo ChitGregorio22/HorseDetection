@@ -20,6 +20,8 @@ export interface Settings {
   check_interval_seconds: number;
   sound_alerts: boolean;
   email_notifications: boolean;
+  /** Raspberry Pi live stream address (MJPEG), or null if not set up */
+  camera_stream_url: string | null;
 }
 
 export interface HorseStatus {
@@ -89,6 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
   check_interval_seconds: 3,
   sound_alerts: true,
   email_notifications: true,
+  camera_stream_url: null,
 };
 
 // numeric columns arrive from Postgres as numbers or strings — normalise them
@@ -137,14 +140,22 @@ export async function getSettings(): Promise<Settings> {
     check_interval_seconds: Number(row.check_interval_seconds),
     sound_alerts: Boolean(row.sound_alerts),
     email_notifications: Boolean(row.email_notifications),
+    camera_stream_url: typeof row.camera_stream_url === "string" && row.camera_stream_url ? row.camera_stream_url : null,
   };
 }
 
 export async function updateSettings(s: Settings) {
   const { data: auth } = await supabase.auth.getUser();
-  const rows = check(
-    await supabase.from("system_settings").update({ ...s, updated_by: auth.user?.id }).eq("id", 1).select(),
-  );
+  const cameraUrl = s.camera_stream_url?.trim() || null;
+  const result = await supabase
+    .from("system_settings")
+    .update({ ...s, camera_stream_url: cameraUrl, updated_by: auth.user?.id })
+    .eq("id", 1)
+    .select();
+  if (result.error?.message.includes("camera_stream_url")) {
+    throw new Error("The database needs the live camera update. Run supabase/03_live_camera.sql in the Supabase SQL Editor, then save again.");
+  }
+  const rows = check(result);
   if (!rows || rows.length === 0) throw new Error("Only an admin can change settings.");
 }
 
@@ -324,4 +335,26 @@ export function toHorseRecord(h: HorseStatus): HorseRecord {
 
 export async function getHorseRecords(): Promise<HorseRecord[]> {
   return (await getHorses()).map(toHorseRecord);
+}
+
+// ---------- Raspberry Pi connection (heartbeat) ----------
+export interface DeviceStatus {
+  id: string;
+  name: string;
+  location: string | null;
+  last_seen_at: string | null;
+  seconds_since_seen: number | null;
+  online: boolean;
+  /** What the Pi last reported: cpu_temp, camera, thermal, dht, uptime_s, ip, app… */
+  status: Record<string, unknown>;
+}
+
+/** Returns null when the database update (04_device_status.sql) hasn't been run yet. */
+export async function getDeviceStatus(): Promise<DeviceStatus[] | null> {
+  const { data, error } = await supabase.rpc("get_device_status");
+  if (error) {
+    if (/get_device_status|function|schema cache/i.test(error.message)) return null;
+    throw new Error(error.message);
+  }
+  return (data ?? []) as DeviceStatus[];
 }

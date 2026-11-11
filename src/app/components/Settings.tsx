@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Save, Plus, Thermometer } from 'lucide-react';
+import { Save, Plus, Thermometer, Camera } from 'lucide-react';
+import { PiStatusPanel, type useDeviceStatus } from './PiStatus';
 import { addHorse, getDevices, saveCalibration, updateSettings, type Device, type Profile, type Settings as SettingsType } from '../lib/api';
 
 interface SettingsProps {
@@ -7,6 +8,7 @@ interface SettingsProps {
   settings: SettingsType;
   onSettingsSaved: () => void;
   onHorseAdded: () => void;
+  deviceStatus: ReturnType<typeof useDeviceStatus>;
 }
 
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
@@ -20,7 +22,7 @@ function NoticeBox({ notice }: { notice: Notice }) {
   );
 }
 
-export function Settings({ profile, settings, onSettingsSaved, onHorseAdded }: SettingsProps) {
+export function Settings({ profile, settings, onSettingsSaved, onHorseAdded, deviceStatus }: SettingsProps) {
   const isAdmin = profile?.role === 'admin';
   const canAddHorse = profile?.role === 'admin' || profile?.role === 'caretaker';
 
@@ -53,6 +55,11 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded }: S
 
   const saveSettings = async () => {
     setSettingsNotice(null);
+    const cameraUrl = form.camera_stream_url?.trim() ?? '';
+    if (cameraUrl && !/^https?:\/\//i.test(cameraUrl)) {
+      setSettingsNotice({ kind: 'error', text: 'The camera address must start with https:// (or http:// for testing on your own Wi-Fi).' });
+      return;
+    }
     if (form.warning_threshold >= form.fever_threshold) {
       setSettingsNotice({ kind: 'error', text: 'Warning threshold must be lower than the fever threshold.' });
       return;
@@ -104,6 +111,8 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded }: S
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-4xl mb-4">Settings</h1>
+
+      <PiStatusPanel devices={deviceStatus.devices} error={deviceStatus.error} onRefresh={deviceStatus.refresh} />
 
       {!isAdmin && (
         <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 text-lg text-blue-900">
@@ -186,6 +195,35 @@ export function Settings({ profile, settings, onSettingsSaved, onHorseAdded }: S
             />
             <label htmlFor="emailNotifications" className="text-xl">Send email notifications</label>
           </div>
+        </div>
+      </div>
+
+      {/* Live Camera */}
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+        <div className="mb-6 flex items-center gap-3">
+          <Camera className="h-7 w-7 text-gray-700" />
+          <h2 className="text-2xl">Live Camera</h2>
+        </div>
+
+        <div className="space-y-3">
+          <label htmlFor="cameraUrl" className="text-xl block">Raspberry Pi stream address</label>
+          <input
+            id="cameraUrl"
+            type="url"
+            value={form.camera_stream_url ?? ''}
+            onChange={(e) => setForm({ ...form, camera_stream_url: e.target.value })}
+            placeholder="https://horse-cam.your-tailnet.ts.net/stream.mjpg?key=YOUR-KEY"
+            disabled={!isAdmin}
+            className="w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none disabled:bg-gray-100"
+          />
+          <p className="text-lg text-gray-600">
+            Shown on the Dashboard for everyone. Copy the <strong>https://</strong> Tailscale Funnel address of the Raspberry Pi and add <span className="font-mono">/stream.mjpg?key=…</span> at the end. Leave empty to hide the camera.
+          </p>
+          {form.camera_stream_url?.startsWith('http://') && (
+            <p className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-3 text-lg text-yellow-900">
+              ⚠️ http:// addresses only work when testing on your own computer. On the Vercel website use the https://…ts.net Funnel address.
+            </p>
+          )}
         </div>
       </div>
 

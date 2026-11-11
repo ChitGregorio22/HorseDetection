@@ -8,6 +8,7 @@ import { Horses } from "./components/Horses";
 import { Register } from "./components/Register";
 import { Settings } from "./components/Settings";
 import { Login } from "./components/Login";
+import { PiStatusBadge, useDeviceStatus } from "./components/PiStatus";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import {
   DEFAULT_SETTINGS,
@@ -33,6 +34,7 @@ export default function App() {
   const [selectedHorseId, setSelectedHorseId] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
   const [loadError, setLoadError] = useState("");
+  const deviceStatus = useDeviceStatus(Boolean(session));
 
   const selectedHorse = horses.find((horse) => horse.id === selectedHorseId) ?? null;
 
@@ -119,6 +121,9 @@ export default function App() {
           <div>
             <h1 className="text-4xl">🐎 Horse Thermal Monitor</h1>
             <p className="text-xl mt-1">Real-Time Temperature Monitoring System</p>
+            <div className="mt-3">
+              <PiStatusBadge devices={deviceStatus.devices} onClick={() => setCurrentView("settings")} />
+            </div>
           </div>
           <div className="flex items-center gap-6 text-right">
             <div>
@@ -201,6 +206,7 @@ export default function App() {
             settings={settings}
             onSettingsSaved={refreshSettings}
             onHorseAdded={refreshHorses}
+            deviceStatus={deviceStatus}
           />
         )}
       </main>

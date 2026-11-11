@@ -16,6 +16,7 @@ Horses, photos, temperature readings, alerts and settings are saved online, so e
 | `src/styles/` | All CSS: Poppins font, Tailwind, green farm theme. |
 | `supabase/` | The SQL you already ran (01 schema, 02 demo data, 00 reset). |
 | `device/send_reading.py` | Script for the thermal camera / Raspberry Pi to send readings. |
+| `raspi/` | Live camera program for the Raspberry Pi + step-by-step guide. |
 | `package.json`, `vite.config.ts`, `vercel.json` | Build settings for Vercel. |
 
 ---
@@ -85,6 +86,21 @@ where horse_code in ('HTM-THUNDER1','HTM-LIGHTNG1','HTM-STORM001','HTM-BLAZE001'
 delete from public.devices where device_key = 'demo-device-key-change-me';
 ```
 Then register your real horses on the website. For your real camera, go to **Table Editor → devices → Insert row** and enter just a name. Copy the generated `device_key` into `send_reading.py`.
+
+---
+
+## Live camera from the Raspberry Pi (Dashboard)
+The Dashboard's main panel shows the live video from your Raspberry Pi.
+1. In Supabase → **SQL Editor**, run `supabase/03_live_camera.sql` once.
+2. Upload the updated files to GitHub (Vercel rebuilds automatically).
+3. On the Pi, follow **`raspi/RASPI-CAMERA-GUIDE.md`**: the camera program and Tailscale Funnel both start automatically on boot.
+4. On the website (as admin): **Settings → Live Camera**, paste `https://horse-cam.<your-tailnet>.ts.net/stream.mjpg?key=YOURKEY` (once, it never changes), and click **Save All Settings**.
+
+## Raspberry Pi connection indicator
+The header shows **Raspberry Pi: Online / Offline** on every page, and **Settings → Raspberry Pi Connection** shows camera, thermal sensor, DHT22 and CPU temperature.
+1. In Supabase → **SQL Editor**, run `supabase/04_device_status.sql` once.
+2. Upload the updated files to GitHub.
+3. On the Pi, set up `raspi/heartbeat.py` (see `raspi/RASPI-CAMERA-GUIDE.md` → *Connection indicator*).
 
 ---
 
