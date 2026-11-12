@@ -60,10 +60,10 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border-4 border-gray-800 bg-gray-900">
       {/* Title bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-800 px-5 py-3 text-white">
-        <div className="flex items-center gap-3">
-          <Camera className="h-7 w-7" />
-          <h2 className="text-2xl">Live Camera</h2>
+      <div className="flex items-center justify-between gap-2 bg-gray-800 px-3 py-2 text-white sm:gap-3 sm:px-5 sm:py-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <Camera className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" />
+          <h2 className="truncate text-xl sm:text-2xl">Live Camera</h2>
           {showStatus && url && !blockedByBrowser && (
             <span
               className={`flex items-center gap-2 rounded-full px-3 py-1 text-base font-semibold ${
@@ -77,12 +77,12 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
         </div>
 
         {url && !blockedByBrowser && (
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <button
               type="button"
               onClick={retry}
               title="Reconnect"
-              className="flex items-center gap-2 rounded-lg bg-gray-700 px-3 py-2 text-base hover:bg-gray-600"
+              className="flex min-h-10 min-w-10 items-center justify-center gap-2 rounded-lg bg-gray-700 px-2.5 py-2 text-base hover:bg-gray-600 sm:px-3"
             >
               <RefreshCw className="h-5 w-5" />
               <span className="hidden sm:inline">Reconnect</span>
@@ -91,7 +91,7 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
               type="button"
               onClick={fullscreen}
               title="Full screen"
-              className="flex items-center gap-2 rounded-lg bg-gray-700 px-3 py-2 text-base hover:bg-gray-600"
+              className="flex min-h-10 min-w-10 items-center justify-center gap-2 rounded-lg bg-gray-700 px-2.5 py-2 text-base hover:bg-gray-600 sm:px-3"
             >
               <Maximize className="h-5 w-5" />
               <span className="hidden sm:inline">Full screen</span>
@@ -104,7 +104,7 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
       <div
         ref={containerRef}
         onContextMenu={noMenu}
-        className="relative flex aspect-video w-full flex-1 select-none items-center justify-center bg-black"
+        className="relative flex aspect-video min-h-[13rem] w-full flex-1 select-none items-center justify-center bg-black"
       >
         {!url ? (
           <Message
@@ -132,22 +132,23 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
 
             {state === 'connecting' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white">
-                <RefreshCw className="h-12 w-12 animate-spin opacity-80" />
-                <p className="text-xl">Connecting to the Raspberry Pi…</p>
+                <RefreshCw className="h-9 w-9 animate-spin opacity-80 sm:h-12 sm:w-12" />
+                <p className="text-lg sm:text-xl">Connecting to the Raspberry Pi…</p>
               </div>
             )}
 
             {state === 'offline' && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white">
-                <CameraOff className="h-14 w-14 opacity-80" />
-                <p className="text-2xl">Camera offline</p>
-                <p className="max-w-md text-lg text-gray-300">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-white sm:gap-4 sm:px-6">
+                <CameraOff className="h-9 w-9 opacity-80 sm:h-14 sm:w-14" />
+                <p className="text-xl sm:text-2xl">Camera offline</p>
+                <p className="hidden max-w-md text-lg text-gray-300 sm:block">
                   Check that the Raspberry Pi is on and the camera program and Tailscale are running. Retrying automatically…
                 </p>
+                <p className="text-sm text-gray-300 sm:hidden">Retrying automatically…</p>
                 <button
                   type="button"
                   onClick={retry}
-                  className="rounded-xl bg-white px-6 py-3 text-xl text-gray-900 hover:bg-gray-200"
+                  className="rounded-xl bg-white px-5 py-2 text-lg text-gray-900 hover:bg-gray-200 sm:px-6 sm:py-3 sm:text-xl"
                 >
                   Try Again Now
                 </button>
@@ -168,10 +169,10 @@ export function LiveCamera({ url, label, showStatus = true, onStateChange }: Liv
 
 function Message({ title, text }: { title: string; text: string }) {
   return (
-    <div className="flex flex-col items-center gap-4 px-6 py-10 text-center text-white">
-      <CameraOff className="h-14 w-14 opacity-70" />
-      <p className="text-2xl">{title}</p>
-      <p className="max-w-lg text-lg text-gray-300">{text}</p>
+    <div className="flex flex-col items-center gap-3 px-4 py-6 text-center text-white sm:gap-4 sm:px-6 sm:py-10">
+      <CameraOff className="h-10 w-10 opacity-70 sm:h-14 sm:w-14" />
+      <p className="text-xl sm:text-2xl">{title}</p>
+      <p className="max-w-lg text-base text-gray-300 sm:text-lg">{text}</p>
     </div>
   );
 }

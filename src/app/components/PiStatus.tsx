@@ -59,7 +59,7 @@ export function PiStatusBadge({ devices, onClick }: { devices: DeviceStatus[] | 
       type="button"
       onClick={onClick}
       title="Raspberry Pi connection — click for details"
-      className="inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-green-700/60 px-4 py-1.5 text-base hover:bg-green-800"
+      className="inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-green-700/60 px-3 py-1 text-sm hover:bg-green-800 sm:px-4 sm:py-1.5 sm:text-base"
     >
       <span className={`h-3 w-3 rounded-full ${dot}`} />
       <Cpu className="h-4 w-4" />
@@ -107,7 +107,7 @@ export function PiStatusPanel({
   onRefresh: () => void;
 }) {
   return (
-    <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+    <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Cpu className="h-7 w-7 text-gray-700" />

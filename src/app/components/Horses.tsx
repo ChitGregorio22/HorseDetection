@@ -71,10 +71,10 @@ export function Horses({
 
   if (horses.length === 0) {
     return (
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         <div className="flex min-h-[480px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
-          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-600 text-4xl">🐎</div>
-          <h1 className="text-4xl font-semibold text-gray-900">No horses registered</h1>
+          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-600 text-3xl sm:text-4xl">🐎</div>
+          <h1 className="text-3xl sm:text-4xl font-semibold text-gray-900">No horses registered</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
             {onRegister
               ? "Register a horse with the live camera to begin monitoring."
@@ -97,9 +97,9 @@ export function Horses({
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-4xl">Horse Profiles</h1>
+        <h1 className="text-3xl sm:text-4xl">Horse Profiles</h1>
         {onRegister && (
           <button
             type="button"
@@ -125,14 +125,14 @@ export function Horses({
                 selectedHorseId === horse.id ? "ring-4 ring-blue-500" : ""
               }`}
             >
-              <div className="grid grid-cols-[120px_1fr]">
+              <div className="grid grid-cols-[88px_1fr] sm:grid-cols-[120px_1fr]">
                 <HorsePhoto src={horse.photo} name={horse.name} />
-                <div className="space-y-2 p-5">
+                <div className="min-w-0 space-y-2 p-3 sm:p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-3xl">🐎 {horse.name}</h2>
+                    <h2 className="truncate text-2xl sm:text-3xl">🐎 {horse.name}</h2>
                     <Activity className={`${status.text} h-8 w-8 shrink-0`} />
                   </div>
-                  <div className={`${status.text} text-4xl tabular-nums`}>
+                  <div className={`${status.text} text-3xl sm:text-4xl tabular-nums`}>
                     {horse.currentTemperature == null ? "—" : `${horse.currentTemperature.toFixed(1)}°C`}
                   </div>
                   {horse.currentTemperature != null && (
@@ -156,7 +156,7 @@ export function Horses({
       </div>
 
       {currentHorse && (
-        <div className="rounded-2xl border-2 border-gray-200 bg-white p-8">
+        <div className="rounded-2xl border-2 border-gray-200 bg-white p-5 sm:p-8">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-3xl">Profile: {currentHorse.name}</h2>
             {can.manageHorses && <HorseActions key={currentHorse.id} horse={currentHorse} onChanged={onChanged} />}
@@ -386,7 +386,7 @@ function RemovedHorses({
   };
 
   return (
-    <div className="rounded-2xl border-2 border-gray-200 bg-white p-6">
+    <div className="rounded-2xl border-2 border-gray-200 bg-white p-4 sm:p-6">
       <h2 className="mb-1 text-2xl">Removed from monitoring ({list.length})</h2>
       <p className="mb-4 text-lg text-gray-600">These horses are hidden from the dashboard. Their readings are kept for the records.</p>
       {error && <p className="mb-3 rounded-lg bg-red-50 p-3 text-lg text-red-800">{error}</p>}
@@ -441,7 +441,7 @@ function RemovedHorses({
 function HorsePhoto({ src, name }: { src: string; name: string }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
-    return <div className="flex h-full min-h-48 w-full items-center justify-center bg-white/60 text-6xl">🐎</div>;
+    return <div className="flex h-full min-h-48 w-full items-center justify-center bg-white/60 text-5xl sm:text-6xl">🐎</div>;
   }
   return <img src={src} alt={name} onError={() => setFailed(true)} className="h-full min-h-48 w-full object-cover" />;
 }

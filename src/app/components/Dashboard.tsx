@@ -108,7 +108,7 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
           : { air: null, rh: null, source: 'No DHT22 reading: Raspberry Pi offline' };
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <LiveCamera url={settings.camera_stream_url} showStatus={false} onStateChange={onCamState} />
@@ -144,13 +144,13 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
               <div className="flex items-center gap-2 text-lg text-blue-700">
                 <Thermometer className="h-6 w-6" /> Air temp
               </div>
-              <div className="mt-2 text-4xl tabular-nums text-blue-700">{env.air == null ? '—' : `${env.air.toFixed(1)}°C`}</div>
+              <div className="mt-2 text-3xl sm:text-4xl tabular-nums text-blue-700">{env.air == null ? '—' : `${env.air.toFixed(1)}°C`}</div>
             </div>
             <div className="rounded-2xl border-4 border-cyan-600 bg-cyan-50 p-4">
               <div className="flex items-center gap-2 text-lg text-cyan-700">
                 <Droplets className="h-6 w-6" /> Humidity
               </div>
-              <div className="mt-2 text-4xl tabular-nums text-cyan-700">{env.rh == null ? '—' : `${env.rh.toFixed(0)}%`}</div>
+              <div className="mt-2 text-3xl sm:text-4xl tabular-nums text-cyan-700">{env.rh == null ? '—' : `${env.rh.toFixed(0)}%`}</div>
             </div>
             <div className="col-span-2 -mt-2 text-base text-gray-500">{env.source}</div>
           </div>
@@ -284,7 +284,7 @@ function BigTemp({ temp, level }: { temp: number; level: Level }) {
   const st = LEVEL_STYLE[level];
   return (
     <div className={`mt-3 rounded-xl border-4 ${st.border} ${st.bg} px-4 py-3`}>
-      <div className={`text-6xl tabular-nums ${st.color}`}>{temp.toFixed(1)}°C</div>
+      <div className={`text-5xl sm:text-6xl tabular-nums ${st.color}`}>{temp.toFixed(1)}°C</div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className={`${st.color} text-2xl`}>{st.text}</span>
         {level !== 'normal' && (
@@ -305,7 +305,7 @@ function MiniProfile({ rec, name, code }: { rec: HorseRecord | null; name: strin
         {rec?.photo ? (
           <img src={rec.photo} alt={`Photo of ${name}`} draggable={false} className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-4xl">🐎</div>
+          <div className="flex h-full w-full items-center justify-center text-3xl sm:text-4xl">🐎</div>
         )}
       </div>
       <div className="min-w-0">

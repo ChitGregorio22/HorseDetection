@@ -113,8 +113,8 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
     setForm({ ...form, [key]: Number(e.target.value) });
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-4xl mb-4">Settings</h1>
+    <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
+      <h1 className="text-3xl sm:text-4xl mb-4">Settings</h1>
 
       <PiStatusPanel devices={deviceStatus.devices} error={deviceStatus.error} onRefresh={deviceStatus.refresh} />
 
@@ -125,7 +125,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
       )}
 
       {/* Threshold Settings */}
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
         <h2 className="text-2xl mb-6">Temperature Thresholds</h2>
 
         <div className="space-y-6">
@@ -158,7 +158,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
       </div>
 
       {/* Monitoring Settings */}
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
         <h2 className="text-2xl mb-6">Monitoring Settings</h2>
 
         <div className="space-y-6">
@@ -193,7 +193,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
       </div>
 
       {/* Live Camera */}
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <Camera className="h-7 w-7 text-gray-700" />
           <h2 className="text-2xl">Live Camera</h2>
@@ -223,7 +223,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
 
       {/* Calibration */}
       {isAdmin && (
-        <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+        <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
           <h2 className="text-2xl mb-4">Camera Calibration</h2>
 
           <div className="mb-4 rounded-xl border-2 border-green-300 bg-green-50 p-4 text-lg text-green-900">
@@ -296,7 +296,7 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
 
       {/* Add Horse */}
       {canAddHorse && (
-        <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+        <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
           <h2 className="text-2xl mb-2">Add a Horse Without the Camera</h2>
           <p className="mb-6 text-lg text-gray-600">
             Horses added here have no camera fingerprint, so the Raspberry Pi can't recognise them. Use <strong>Register</strong> for

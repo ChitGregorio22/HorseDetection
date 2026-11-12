@@ -134,7 +134,18 @@
   */
 
   html {
-    font-size: var(--font-size);
+    /* One size for the whole site that follows the screen: 14px on phones → 16px from tablets up.
+       Every Tailwind size is in rem, so text, spacing and buttons all scale together. */
+    font-size: clamp(14px, 12.2px + 0.5vw, var(--font-size));
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Phones: typing boxes stay at 16px, otherwise iPhones zoom the page in when you tap them */
+  @media (max-width: 640px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 
   h1 {

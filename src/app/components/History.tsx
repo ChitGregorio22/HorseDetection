@@ -61,11 +61,11 @@ export function History({ horse, horses, onSelectHorse, settings }: HistoryProps
 
   if (!horse || (!loading && days.length === 0)) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
         <HorsePicker horse={horse} horses={horses} onSelectHorse={onSelectHorse} />
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
           <div className="mb-5 text-7xl">🐎</div>
-          <h1 className="text-4xl">No temperature history</h1>
+          <h1 className="text-3xl sm:text-4xl">No temperature history</h1>
           <p className="mt-3 text-xl text-gray-600">
             {horse
               ? `No readings recorded for ${horse.name} yet. Pick another horse above, or wait for the camera to send readings.`
@@ -77,7 +77,7 @@ export function History({ horse, horses, onSelectHorse, settings }: HistoryProps
   }
 
   if (loading && days.length === 0) {
-    return <div className="p-6 text-2xl text-gray-600">Loading history…</div>;
+    return <div className="p-4 sm:p-6 text-2xl text-gray-600">Loading history…</div>;
   }
 
   const { warning_threshold: warnAt, fever_threshold: feverAt } = settings;
@@ -132,77 +132,77 @@ export function History({ horse, horses, onSelectHorse, settings }: HistoryProps
   const TrendIcon = getTrendIcon();
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl mb-3">Temperature History</h1>
+          <h1 className="text-3xl sm:text-4xl mb-3">Temperature History</h1>
           <HorsePicker horse={horse} horses={horses} onSelectHorse={onSelectHorse} />
         </div>
         <CsvDownload horse={horse} />
       </div>
 
       {/* Data Analysis */}
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
         <h2 className="text-2xl mb-4">{historicalData.length}-Day Data Analysis</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-purple-50 border-2 border-purple-600 rounded-xl p-4">
-            <div className="text-lg text-purple-600 mb-2">Temperature Trend</div>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <div className="bg-purple-50 border-2 border-purple-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-purple-600 mb-2">Temperature Trend</div>
             <div className={`flex items-center gap-2 ${getTrendColor()}`}>
               <TrendIcon className="w-8 h-8" />
-              <span className="text-3xl">{getTrendText()}</span>
+              <span className="text-2xl sm:text-3xl">{getTrendText()}</span>
             </div>
-            <div className="text-lg text-gray-600 mt-2">
+            <div className="text-base sm:text-lg text-gray-600 mt-2">
               {tempTrend > 0 ? '+' : ''}{tempTrend.toFixed(1)}°C change
             </div>
           </div>
 
-          <div className="bg-indigo-50 border-2 border-indigo-600 rounded-xl p-4">
-            <div className="text-lg text-indigo-600 mb-2">Average Body Temp</div>
-            <div className="text-3xl text-indigo-700 tabular-nums">{avgTemp.toFixed(1)}°C</div>
-            <div className="text-lg text-gray-600 mt-2">{historicalData.length}-day average</div>
+          <div className="bg-indigo-50 border-2 border-indigo-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-indigo-600 mb-2">Average Body Temp</div>
+            <div className="text-2xl sm:text-3xl text-indigo-700 tabular-nums">{avgTemp.toFixed(1)}°C</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">{historicalData.length}-day average</div>
           </div>
 
-          <div className="bg-teal-50 border-2 border-teal-600 rounded-xl p-4">
-            <div className="text-lg text-teal-600 mb-2">Avg Air Temperature</div>
-            <div className="text-3xl text-teal-700 tabular-nums">{avgEnvTemp == null ? '—' : `${avgEnvTemp.toFixed(1)}°C`}</div>
-            <div className="text-lg text-gray-600 mt-2">
+          <div className="bg-teal-50 border-2 border-teal-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-teal-600 mb-2">Avg Air Temperature</div>
+            <div className="text-2xl sm:text-3xl text-teal-700 tabular-nums">{avgEnvTemp == null ? '—' : `${avgEnvTemp.toFixed(1)}°C`}</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">
               Humidity {avgHumidity == null ? '—' : `${avgHumidity.toFixed(0)}%`} · DHT22
             </div>
           </div>
 
-          <div className="bg-orange-50 border-2 border-orange-600 rounded-xl p-4">
-            <div className="text-lg text-orange-600 mb-2">Temperature Range</div>
+          <div className="bg-orange-50 border-2 border-orange-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-orange-600 mb-2">Temperature Range</div>
             <div className="text-2xl text-orange-700 tabular-nums">
               {minTemp.toFixed(1)} - {maxTemp.toFixed(1)}°C
             </div>
-            <div className="text-lg text-gray-600 mt-2">Min to Max</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">Min to Max</div>
           </div>
 
-          <div className="bg-red-50 border-2 border-red-600 rounded-xl p-4">
-            <div className="text-lg text-red-600 mb-2">Fever Days</div>
-            <div className="text-3xl text-red-700">{feverDays} days</div>
-            <div className="text-lg text-gray-600 mt-2">Peak ≥ {feverAt.toFixed(1)}°C</div>
+          <div className="bg-red-50 border-2 border-red-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-red-600 mb-2">Fever Days</div>
+            <div className="text-2xl sm:text-3xl text-red-700">{feverDays} days</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">Peak ≥ {feverAt.toFixed(1)}°C</div>
           </div>
 
-          <div className="bg-yellow-50 border-2 border-yellow-600 rounded-xl p-4">
-            <div className="text-lg text-yellow-600 mb-2">Warning Days</div>
-            <div className="text-3xl text-yellow-700">
+          <div className="bg-yellow-50 border-2 border-yellow-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-yellow-600 mb-2">Warning Days</div>
+            <div className="text-2xl sm:text-3xl text-yellow-700">
               {historicalData.filter(d => d.status === 'warning').length} days
             </div>
-            <div className="text-lg text-gray-600 mt-2">Peak {warnAt.toFixed(1)} - {feverAt.toFixed(1)}°C</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">Peak {warnAt.toFixed(1)} - {feverAt.toFixed(1)}°C</div>
           </div>
 
-          <div className="bg-green-50 border-2 border-green-600 rounded-xl p-4">
-            <div className="text-lg text-green-600 mb-2">Normal Days</div>
-            <div className="text-3xl text-green-700">
+          <div className="bg-green-50 border-2 border-green-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-green-600 mb-2">Normal Days</div>
+            <div className="text-2xl sm:text-3xl text-green-700">
               {historicalData.filter(d => d.status === 'normal').length} days
             </div>
-            <div className="text-lg text-gray-600 mt-2">Peak below {warnAt.toFixed(1)}°C</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">Peak below {warnAt.toFixed(1)}°C</div>
           </div>
 
-          <div className="bg-blue-50 border-2 border-blue-600 rounded-xl p-4">
-            <div className="text-lg text-blue-600 mb-2">Current Deviation</div>
-            <div className={`text-3xl tabular-nums ${
+          <div className="bg-blue-50 border-2 border-blue-600 rounded-xl p-3 sm:p-4">
+            <div className="text-base sm:text-lg text-blue-600 mb-2">Current Deviation</div>
+            <div className={`text-2xl sm:text-3xl tabular-nums ${
               latestAvg - normalTemp > 0.5 ? 'text-red-600' :
               latestAvg - normalTemp < -0.5 ? 'text-blue-600' :
               'text-green-600'
@@ -210,13 +210,13 @@ export function History({ horse, horses, onSelectHorse, settings }: HistoryProps
               {latestAvg - normalTemp > 0 ? '+' : ''}
               {(latestAvg - normalTemp).toFixed(1)}°C
             </div>
-            <div className="text-lg text-gray-600 mt-2">From normal {normalTemp.toFixed(1)}°C</div>
+            <div className="text-base sm:text-lg text-gray-600 mt-2">From normal {normalTemp.toFixed(1)}°C</div>
           </div>
         </div>
       </div>
 
       {/* Large Chart */}
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
         <h2 className="text-2xl mb-4">{historicalData.length}-Day Trend (daily averages)</h2>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={historicalData}>
@@ -429,7 +429,7 @@ function ReadingsChart({ horseId, settings }: { horseId: string; settings: Setti
   const hi = Math.max(39, settings.fever_threshold + 0.5, ...bodies) + 0.2;
 
   return (
-    <div className="bg-white border-2 border-gray-200 rounded-2xl p-6">
+    <div className="bg-white border-2 border-gray-200 rounded-2xl p-4 sm:p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl">Every reading: body vs air temperature and humidity</h2>
         <div className="flex gap-2">

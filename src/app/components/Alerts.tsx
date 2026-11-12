@@ -51,18 +51,18 @@ export function Alerts({ selectedHorse, settings, canHandle }: AlertsProps) {
   const activeCount = alerts.filter((a) => a.status === "active").length;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
       {/* Active Alert Banner */}
       {activeAlert && (
-        <div className="rounded-2xl border-4 border-red-700 bg-red-600 p-8 text-white">
+        <div className="rounded-2xl border-4 border-red-700 bg-red-600 p-5 sm:p-8 text-white">
           <div className="space-y-4">
             <div className="flex items-center gap-4">
               <AlertTriangle className="h-16 w-16 animate-pulse" />
-              <h2 className="text-5xl">ALERT!</h2>
+              <h2 className="text-4xl sm:text-5xl">ALERT!</h2>
             </div>
             <div className="space-y-2">
               <p className="text-3xl">Horse: {activeAlert.horses?.name ?? "Unknown"}</p>
-              <p className="text-4xl">Temperature: {activeAlert.temperature.toFixed(1)}°C</p>
+              <p className="text-3xl sm:text-4xl">Temperature: {activeAlert.temperature.toFixed(1)}°C</p>
               <p className="text-2xl">Time: {formatDateTime(activeAlert.created_at)}</p>
             </div>
             {canHandle && (
@@ -83,7 +83,7 @@ export function Alerts({ selectedHorse, settings, canHandle }: AlertsProps) {
       )}
 
       <div>
-        <h1 className="text-4xl">Alert History</h1>
+        <h1 className="text-3xl sm:text-4xl">Alert History</h1>
         <p className="mt-2 text-xl text-gray-600">
           {selectedHorse
             ? `All horses · ${activeCount} active alert${activeCount === 1 ? "" : "s"}`
@@ -121,7 +121,7 @@ export function Alerts({ selectedHorse, settings, canHandle }: AlertsProps) {
                 : "border-gray-300 bg-white";
 
             return (
-              <div key={alert.id} className={`${panel} rounded-xl border-2 p-6`}>
+              <div key={alert.id} className={`${panel} rounded-xl border-2 p-4 sm:p-6`}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center gap-3">
@@ -161,7 +161,7 @@ export function Alerts({ selectedHorse, settings, canHandle }: AlertsProps) {
         </div>
       )}
 
-      <div className="rounded-xl border-2 border-blue-600 bg-blue-50 p-6">
+      <div className="rounded-xl border-2 border-blue-600 bg-blue-50 p-4 sm:p-6">
         <h2 className="mb-3 text-2xl">Alert Settings</h2>
         <div className="space-y-2 text-xl">
           <p>🟡 Warning threshold: {settings.warning_threshold.toFixed(1)}°C</p>

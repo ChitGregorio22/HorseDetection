@@ -70,9 +70,9 @@ export function Users({ myId }: { myId: string }) {
   );
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
       <div>
-        <h1 className="text-4xl">Users</h1>
+        <h1 className="text-3xl sm:text-4xl">Users</h1>
         <p className="mt-2 text-xl text-gray-600">Approve new accounts and choose what each person can do.</p>
       </div>
 
@@ -96,7 +96,7 @@ export function Users({ myId }: { myId: string }) {
 
       {/* Waiting for approval */}
       {!loading && (
-        <section className="rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-6">
+        <section className="rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-4 sm:p-6">
           <h2 className="mb-4 flex items-center gap-2 text-2xl">
             <Clock className="h-7 w-7 text-yellow-700" /> Waiting for approval ({pending.length})
           </h2>
@@ -133,7 +133,7 @@ export function Users({ myId }: { myId: string }) {
 
       {/* Active users */}
       {!loading && (
-        <section className="rounded-2xl border-2 border-gray-200 bg-white p-6">
+        <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 sm:p-6">
           <h2 className="mb-4 flex items-center gap-2 text-2xl">
             <ShieldCheck className="h-7 w-7 text-green-700" /> Active users ({approved.length})
           </h2>

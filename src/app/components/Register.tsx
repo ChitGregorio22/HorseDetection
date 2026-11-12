@@ -174,7 +174,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
             <div className="rounded-lg bg-green-800/40 px-4 py-2 font-mono text-lg">{horse.horseCode}</div>
           </div>
 
-          <div className="grid gap-8 p-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
+          <div className="grid gap-5 sm:gap-8 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
             <div className="space-y-6">
               <div className="flex items-center justify-center overflow-hidden rounded-2xl border-2 border-gray-200 bg-black">
                 {horse.photo ? (
@@ -208,7 +208,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
               </div>
             </div>
 
-            <aside className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-[#f8fcf8] p-6 text-center">
+            <aside className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-[#f8fcf8] p-4 sm:p-6 text-center">
               <QrPlate name={horse.name} code={horse.horseCode} />
               <div className="mt-3 grid w-full gap-3">
                 <button
@@ -250,7 +250,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
           <PawPrint className="h-5 w-5" />
           Horse profile manager
         </div>
-        <h1 className="text-4xl font-semibold text-gray-900">Register a horse</h1>
+        <h1 className="text-3xl sm:text-4xl font-semibold text-gray-900">Register a horse</h1>
         <p className="mt-2 text-xl text-gray-600">
           Uses the stall camera: the Raspberry Pi takes about 30 photos while the horse turns, so it can recognise it later.
         </p>
@@ -268,7 +268,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
           <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0" />
           <span>
             The Raspberry Pi is <strong>offline</strong>. You can still start; the registration begins when the Pi is back online
-            and <span className="font-mono">horse_monitor.py --web</span> is running.
+            and <span className="font-mono">thesisv2.py --web</span> is running.
           </span>
         </div>
       )}
@@ -294,10 +294,10 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
 
         <div className="space-y-4">
           {loading ? (
-            <div className="rounded-2xl border-2 border-gray-200 bg-white p-6 text-xl text-gray-600">Loading…</div>
+            <div className="rounded-2xl border-2 border-gray-200 bg-white p-4 sm:p-6 text-xl text-gray-600">Loading…</div>
           ) : active && request ? (
             /* -------------------- in progress -------------------- */
-            <div className="rounded-2xl border-2 border-green-300 bg-white p-6">
+            <div className="rounded-2xl border-2 border-green-300 bg-white p-4 sm:p-6">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-7 w-7 animate-spin text-green-700" />
                 <h2 className="text-2xl">
@@ -310,7 +310,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
                   The request was sent. The Raspberry Pi starts within a few seconds.
                   {waitingLong && (
                     <span className="mt-2 block rounded-lg bg-yellow-50 p-3 text-yellow-900">
-                      Still waiting. Check that the Pi is online and <span className="font-mono">horse_monitor.py</span> runs
+                      Still waiting. Check that the Pi is online and <span className="font-mono">thesisv2.py</span> runs
                       with <span className="font-mono">--web</span>.
                     </span>
                   )}
@@ -407,7 +407,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
               )}
 
               {/* -------------------- form -------------------- */}
-              <form onSubmit={(e) => start(e)} className="space-y-5 rounded-2xl border-2 border-gray-200 bg-white p-6">
+              <form onSubmit={(e) => start(e)} className="space-y-5 rounded-2xl border-2 border-gray-200 bg-white p-4 sm:p-6">
                 <h2 className="text-2xl">Horse details</h2>
                 <div>
                   <label htmlFor="horseName" className="mb-2 block text-lg font-semibold">Horse name</label>
@@ -440,7 +440,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
                 </button>
                 {piOnline && !piHasWeb && device?.status?.app != null && (
                   <p className="text-base text-gray-600">
-                    The Pi is online. Make sure <span className="font-mono">horse_monitor.py</span> is running with{" "}
+                    The Pi is online. Make sure <span className="font-mono">thesisv2.py</span> is running with{" "}
                     <span className="font-mono">--web</span>, otherwise the request waits.
                   </p>
                 )}

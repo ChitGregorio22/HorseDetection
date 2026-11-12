@@ -53,7 +53,7 @@ export function Login() {
           <p className="mt-1 text-lg">{mode === "signin" ? "Sign in to continue" : "Create an account"}</p>
         </div>
 
-        <form onSubmit={submit} className="space-y-5 p-6">
+        <form onSubmit={submit} className="space-y-5 p-4 sm:p-6">
           {mode === "signup" && (
             <div>
               <label htmlFor="fullName" className="mb-2 block text-lg font-semibold">Full name</label>

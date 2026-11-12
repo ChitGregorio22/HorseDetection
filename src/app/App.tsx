@@ -122,6 +122,14 @@ export default function App() {
   // No live view from the Pi? Follow it through its readings instead: a NEW Pi reading (sent in the last
   // 3 minutes) switches the Dashboard to that horse.
   const piReading = live.lastPiReading;
+  // phones: keep the current page's menu button in view (only when the page changes)
+  const navRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const btn = nav?.querySelector<HTMLElement>("[data-active]");
+    if (nav && btn) nav.scrollTo({ left: btn.offsetLeft - nav.clientWidth / 2 + btn.clientWidth / 2, behavior: "smooth" });
+  }, [currentView]);
+
   const seenReading = useRef<number | null>(null);
   useEffect(() => {
     if (!piReading || piReading.id === seenReading.current) return;
@@ -144,8 +152,8 @@ export default function App() {
 
   if (!isSupabaseConfigured) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-        <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-8">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4 sm:p-6">
+        <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-5 sm:p-8">
           <h1 className="text-3xl">🐎 Database not connected yet</h1>
           <p className="mt-4 text-xl text-gray-700">
             Add <code className="font-mono">VITE_SUPABASE_URL</code> and{" "}
@@ -166,8 +174,8 @@ export default function App() {
   }
   if (!approved) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-        <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-8 text-center">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4 sm:p-6">
+        <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-5 sm:p-8 text-center">
           <Clock className="mx-auto h-14 w-14 text-yellow-700" />
           <h1 className="mt-4 text-3xl">Waiting for approval</h1>
           <p className="mt-4 text-xl text-gray-700">
@@ -222,23 +230,25 @@ export default function App() {
       />
 
       {/* Header */}
-      <header className="bg-green-600 text-white px-6 py-6 border-b-4 border-green-700">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-4xl">🐎 Horse Thermal Monitor</h1>
-            <p className="text-xl mt-1">Real-Time Temperature Monitoring System</p>
-            <div className="mt-3">
+      <header className="border-b-4 border-green-700 bg-green-600 px-4 py-3 text-white sm:px-6 sm:py-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl leading-tight sm:text-3xl lg:text-4xl">🐎 Horse Thermal Monitor</h1>
+            <p className="mt-1 hidden text-xl sm:block">Real-Time Temperature Monitoring System</p>
+            <div className="mt-2 sm:mt-3">
               <PiStatusBadge devices={deviceStatus.devices} onClick={() => setCurrentView("settings")} />
             </div>
           </div>
-          <div className="flex items-center gap-6 text-right">
-            <div>
-              <div className="text-lg">{profile?.full_name || session.user.email}</div>
-              <div className="text-base opacity-90">{profile ? ROLE_LABELS[profile.role] : ""}</div>
+          <div className="flex shrink-0 items-center text-right">
+            <div className="min-w-0">
+              <div className="max-w-[9rem] truncate text-sm sm:max-w-[16rem] sm:text-lg">
+                {profile?.full_name || session.user.email}
+              </div>
+              <div className="text-xs opacity-90 sm:text-base">{profile ? ROLE_LABELS[profile.role] : ""}</div>
               <button
                 type="button"
                 onClick={() => supabase.auth.signOut()}
-                className="mt-1 inline-flex items-center gap-1 text-base underline underline-offset-4"
+                className="mt-1 inline-flex min-h-8 items-center gap-1 text-sm underline underline-offset-4 sm:text-base"
               >
                 <LogOut className="h-4 w-4" /> Sign out
               </button>
@@ -248,8 +258,8 @@ export default function App() {
       </header>
 
       {/* Navigation */}
-      <nav className="bg-white border-b-2 border-gray-200">
-        <div className="flex gap-2 p-4 overflow-x-auto">
+      <nav className="sticky top-0 z-30 border-b-2 border-gray-200 bg-white">
+        <div ref={navRef} className="flex gap-1.5 overflow-x-auto p-2 [scrollbar-width:none] sm:gap-2 sm:p-4 [&::-webkit-scrollbar]:hidden">
           {navigationItems.map((item) => {
             const Icon = item.icon;
             const isActive = view === item.id;
@@ -257,8 +267,9 @@ export default function App() {
             return (
               <button
                 key={item.id}
+                data-active={isActive || undefined}
                 onClick={() => setCurrentView(item.id)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg text-xl whitespace-nowrap transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-base transition-colors sm:gap-2 sm:px-6 sm:py-3 sm:text-xl ${
                   isActive
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
