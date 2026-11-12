@@ -1,6 +1,6 @@
 -- =====================================================================
---  Horse Thermal Monitor — Update 9: readings from thesisv2.py
---  Run once in Supabase → SQL Editor (after 01–08). Safe to re-run.
+--  Horse Thermal Monitor — Update 8b: readings from the Pi (already run: DO NOT run again)
+--  Run once in Supabase → SQL Editor (after 01–08_live_view). Then 09_pi_readings_batch.sql.
 --
 --  thesisv2.py sends at most one reading per confirmed horse per minute through
 --  web_link.py → device_submit_reading(). The body temperature is ALREADY FINAL

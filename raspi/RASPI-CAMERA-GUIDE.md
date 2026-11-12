@@ -18,12 +18,13 @@ for older scripts such as horse_monitor.py.
 
 **thesisv2_backup.py** is the copy for testing and for calibration readings (key **k**: rectal thermometer).
 
-**Readings**: after a horse is confirmed (fingerprint or the stall's QR plate), thesisv2.py stores a reading in
-horses.db and hands it to `web_link.py` (`web.queue_reading`). That never slows the camera: a background thread sends
-it with `device_submit_reading`. Unsent readings are kept in **`pending_readings.jsonl`** (next to web_link.py) and go
-out when the internet is back, even after a restart. A reading retried after a network error is stored **once**.
-Readings for a horse the website doesn't know (deleted there) go to `rejected_readings.jsonl` instead.
-Uncertain horses are never sent.
+**Readings**: thesisv2.py saves every reading in **horses.db first**. Every 5 s, while the website is reachable, it
+hands the oldest unsent confirmed readings (max 30, at most one per horse per 60 s) to `web_link.py`
+(`web.queue_reading`), which sends them in batches with `device_submit_readings` and reports back through
+`web.poll_uploaded()`. A reading counts as sent on the Pi **only after the website confirms it**; otherwise it is
+handed over again later (after an outage, a restart or a power cut). horses.db is the backup, so no extra file is
+kept, and the website ignores a reading it already has. Readings taken while offline keep their **own time**
+(`recorded_at`), also for fever alerts. Uncertain horses are never sent.
 
 **Body temperature is final on the Pi** (surface + offset + DHT22 correction from `compensation.json`). The website
 never adds the old calibration offset to these readings (Settings shows it as *not used for Pi readings*).
@@ -49,8 +50,9 @@ Files next to **thesisv2.py** on the Pi: **`web_stream.py`**, **`web_link.py`**,
 
 ## Step 0: Database (once, in Supabase → SQL Editor)
 Run, in order, the ones not done yet: `03_live_camera.sql`, `04_device_status.sql`, `05_roles_and_approval.sql`,
-`06_signup_role.sql`, `07_remote_registration.sql`, `08_live_view.sql`, **`09_pi_readings.sql`** (readings
-from thesisv2.py), then **`10_profile_photos.sql`** (profile photos). Each is safe to run again. **Never** run 00_reset, 01_schema or 02_seed again.
+`06_signup_role.sql`, `07_remote_registration.sql`, `08_live_view.sql`, `08_pi_readings.sql` (readings: **already
+run, don't run again**), **`09_pi_readings_batch.sql`** (readings in batches), then **`10_profile_photos.sql`**
+(profile photos). Each is safe to run again. **Never** run 00_reset, 01_schema or 02_seed again.
 
 ## Step 1: Connect thesisv2.py to the website (once)
 1. **Register the Pi as a device** in Supabase → SQL Editor (skip if you already have one):
@@ -73,7 +75,7 @@ from thesisv2.py), then **`10_profile_photos.sql`** (profile photos). Each is sa
    ```bash
    python3 web_link.py --test
    ```
-   You should see `✓ Connected`, `✓ Remote registration is installed` and `✓ Reading upload (09_pi_readings.sql) is installed`.
+   You should see `✓ Connected`, `✓ Remote registration is installed` and `✓ Reading upload in batches (09_pi_readings_batch.sql) is installed`.
 4. **Horses registered on the Pi before** (with `r`): put them on the website once:
    ```bash
    python3 web_link.py --push-existing
@@ -241,9 +243,9 @@ Wait 1–2 minutes (YOLO takes a moment to load), then open the website. The hea
 |---|---|
 | Dashboard: **Camera not set up yet** | No address saved. Do Step 4. |
 | Dashboard: **Camera offline** | On the Pi: `systemctl status horse-monitor` (running?) and `tailscale funnel status` (Funnel on?). Then open `http://<pi-ip>:8000` on the farm Wi-Fi. |
-| No new readings on the website | `python3 web_link.py --test`. If it lists readings waiting in `pending_readings.jsonl`, they are sent once thesisv2.py --web runs with internet. *Reading upload isn't installed* → run `09_pi_readings.sql`. |
-| Log: *readings wait for supabase/09_pi_readings.sql* | Run `09_pi_readings.sql`. Nothing is lost: the readings wait in `pending_readings.jsonl`. |
-| Log: *the website doesn't know HTM-…* | That horse was deleted on the website. Its readings stay in horses.db and `rejected_readings.jsonl`. |
+| No new readings on the website | `python3 web_link.py --test`. Nothing is lost: unsent readings stay in horses.db and go out when the website is reachable. |
+| Log: *no batch upload yet (run supabase/09_pi_readings_batch.sql)* | Run `09_pi_readings_batch.sql`. Until then readings still go out, one at a time. |
+| Log: *the website doesn't know HTM-…* | That horse was deleted (or removed from monitoring) on the website. Its readings stay in horses.db. |
 | Profile photo: "Not taken: … is not the confirmed horse in the stall right now" | Wait until the Pi has confirmed that horse (its name on the camera picture), then press Take photo now again. |
 | Profile photo: "The Pi didn't answer" | thesisv2.py isn't running with `--web`, or `10_profile_photos.sql` wasn't run (the Pi log says so). |
 | `already has the website link built in` | You ran add_web_link.py on the new thesisv2.py. Nothing was changed; it doesn't need it. |

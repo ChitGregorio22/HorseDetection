@@ -40,7 +40,7 @@ export interface HorseStatus {
   status: HealthStatus;
   last_check: string | null;
   open_alerts: number;
-  // from 09_pi_readings.sql (missing before it is run)
+  // from 08_pi_readings.sql (missing before it is run)
   current_surface_temp?: number | null;
   current_humidity?: number | null;
   current_id_method?: IdMethod | null;
@@ -241,7 +241,7 @@ function toReading(r: Record<string, unknown>): Reading {
   };
 }
 
-/** Readings query that still works before 09_pi_readings.sql adds surface_temp / id_method. */
+/** Readings query that still works before 08_pi_readings.sql adds surface_temp / id_method. */
 async function selectReadings(build: (cols: string) => PromiseLike<{ data: unknown; error: { message: string } | null }>) {
   let res = await build(READING_COLS);
   if (res.error && /surface_temp|id_method|column/i.test(res.error.message)) res = await build(READING_COLS_OLD);
