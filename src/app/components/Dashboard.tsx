@@ -27,12 +27,16 @@ const LEVEL_STYLE: Record<Level, { text: string; color: string; bg: string; bord
   normal: { text: 'NORMAL', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-600' },
 };
 
+/** A QR plate the camera reads right now, and the horse it belongs to (null = not a horse on the website) */
+type QrSeen = { code: string; rec: HorseRecord | null } | null;
+
 /** The horse in the stall, whichever way the Pi told us */
 type Stall =
-  | { kind: 'identified'; name: string; code: string | null; known: boolean; body: number | null; surface: number | null;
-      how: 'qr' | 'fingerprint' | null; confidence: number | null; at: string | null }
-  | { kind: 'identifying'; body: number | null; qrName: string | null }
-  | { kind: 'detected'; qrName: string | null }
+  | { kind: 'identified'; name: string; code: string | null; rec: HorseRecord | null; body: number | null;
+      surface: number | null; how: 'qr' | 'fingerprint' | null; confidence: number | null; at: string | null }
+  | { kind: 'identifying'; body: number | null; qr: QrSeen }
+  | { kind: 'detected'; qr: QrSeen }
+  | { kind: 'qr-only'; qr: NonNullable<QrSeen> }
   | { kind: 'unknown'; body: number | null; guess: string | null }
   | { kind: 'registering'; name: string | null }
   | { kind: 'empty'; lastSeen: { name: string; at: string } | null }
@@ -59,13 +63,14 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
   if (live.fresh && live.view) {
     const main = live.main;
     others = live.view.horses.filter((h) => h !== main);
-    // a QR plate the camera can read right now (name from the website's horse list)
+    // a QR plate the camera can read right now (even with no horse in view: shows the QR reading works)
     const qrCode = live.view.qr[0];
-    const qrName = qrCode ? horses.find((h) => h.horseCode.toUpperCase() === qrCode)?.name ?? qrCode : null;
+    const qr: QrSeen = qrCode ? { code: qrCode, rec: horses.find((h) => h.horseCode.toUpperCase() === qrCode) ?? null } : null;
     if (live.view.mode === 'registering') stall = { kind: 'registering', name: live.view.registering };
-    else if (!main && live.view.present) stall = { kind: 'detected', qrName };
+    else if (!main && live.view.present) stall = { kind: 'detected', qr };
+    else if (!main && qr) stall = { kind: 'qr-only', qr };
     else if (!main) stall = { kind: 'empty', lastSeen: null };
-    else if (main.status === 'identifying') stall = { kind: 'identifying', body: main.body_temp, qrName };
+    else if (main.status === 'identifying') stall = { kind: 'identifying', body: main.body_temp, qr };
     else if (main.status === 'unknown') stall = { kind: 'unknown', body: main.body_temp, guess: main.best_guess };
     else {
       const rec = main.horse_code ? horses.find((h) => h.horseCode === main.horse_code) : undefined;
@@ -73,14 +78,14 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
       const how =
         main.method ?? (readingRecent && reading && rec && reading.horse_id === rec.id ? reading.id_method : 'fingerprint');
       stall = {
-        kind: 'identified', name: main.name ?? rec?.name ?? 'Unknown', code: main.horse_code, known: !!rec,
+        kind: 'identified', name: main.name ?? rec?.name ?? 'Unknown', code: main.horse_code, rec: rec ?? null,
         body: main.body_temp, surface: main.surface_temp, how, confidence: main.confidence, at: live.view.updated_at,
       };
     }
   } else if (readingRecent && reading) {
     const rec = horses.find((h) => h.id === reading.horse_id);
     stall = {
-      kind: 'identified', name: nameOf(reading.horse_id), code: rec?.horseCode ?? null, known: true,
+      kind: 'identified', name: nameOf(reading.horse_id), code: rec?.horseCode ?? null, rec: rec ?? null,
       body: reading.body_temp, surface: reading.surface_temp, how: reading.id_method, confidence: null, at: reading.recorded_at,
     };
   } else if (reading) {
@@ -211,15 +216,20 @@ function StallView({ stall, levelOf }: { stall: Stall; levelOf: (t: number) => L
             <ScanSearch className="h-6 w-6 animate-pulse" /> Identifying…
           </div>
           {stall.kind === 'identifying' && stall.body != null && <BigTemp temp={stall.body} level={levelOf(stall.body)} />}
-          {stall.qrName ? (
-            <p className="mt-3 inline-flex items-center gap-1 rounded-md bg-purple-100 px-2 py-1 text-lg text-purple-800">
-              <QrCode className="h-5 w-5" /> QR plate seen: {stall.qrName}
-            </p>
+          {stall.qr ? (
+            <QrCard qr={stall.qr} note="QR plate on the stall:" />
           ) : (
             <p className="mt-2 text-lg text-gray-600">
               The camera (YOLO) sees a horse and is checking who it is by its fingerprint or the stall's QR plate.
             </p>
           )}
+        </div>
+      );
+    case 'qr-only':
+      return (
+        <div className="mt-4">
+          <div className="text-2xl text-gray-500">No horse in view</div>
+          <QrCard qr={stall.qr} note="QR plate seen (the QR reading works)" />
         </div>
       );
     case 'unknown':
@@ -236,7 +246,7 @@ function StallView({ stall, levelOf }: { stall: Stall; levelOf: (t: number) => L
     case 'identified':
       return (
         <div className="mt-4">
-          <div className="text-4xl">{stall.name}</div>
+          <MiniProfile rec={stall.rec} name={stall.name} code={stall.code} />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-lg text-gray-600">
             {stall.how === 'qr' ? (
               <span className="inline-flex items-center gap-1 rounded-md bg-purple-100 px-2 py-0.5 text-purple-800">
@@ -248,7 +258,6 @@ function StallView({ stall, levelOf }: { stall: Stall; levelOf: (t: number) => L
                 {stall.confidence != null ? ` · ${Math.round(stall.confidence * 100)}% match` : ''}
               </span>
             )}
-            {stall.code && <span className="font-mono text-base">{stall.code}</span>}
           </div>
           {stall.body != null ? (
             <>
@@ -261,7 +270,7 @@ function StallView({ stall, levelOf }: { stall: Stall; levelOf: (t: number) => L
           ) : (
             <p className="mt-3 text-lg text-gray-600">No temperature: the horse is outside the thermal camera's view.</p>
           )}
-          {!stall.known && (
+          {!stall.rec && (
             <p className="mt-3 rounded-lg bg-yellow-50 px-3 py-2 text-base text-yellow-800">
               {stall.name} isn't on the website yet. On the Pi: <code>python3 web_link.py --push-existing</code>
             </p>
@@ -284,6 +293,48 @@ function BigTemp({ temp, level }: { temp: number; level: Level }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Small profile of the horse in the stall: photo, name, ID, age, normal temperature */
+function MiniProfile({ rec, name, code }: { rec: HorseRecord | null; name: string; code: string | null }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 border-gray-200 bg-gray-100">
+        {rec?.photo ? (
+          <img src={rec.photo} alt={`Photo of ${name}`} draggable={false} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-4xl">🐎</div>
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-3xl leading-tight">{name}</div>
+        {(code ?? rec?.horseCode) && <div className="font-mono text-base text-gray-600">{code ?? rec?.horseCode}</div>}
+        {rec && (
+          <div className="text-base text-gray-600">
+            {rec.age != null ? `${rec.age} yr · ` : ''}normal {rec.normalTemperature.toFixed(1)}°C
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A QR plate the camera reads, with the horse it belongs to */
+function QrCard({ qr, note }: { qr: NonNullable<QrSeen>; note: string }) {
+  return (
+    <div className="mt-3 rounded-xl border-2 border-purple-200 bg-purple-50 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-base text-purple-800">
+        <QrCode className="h-5 w-5" /> {note}
+      </div>
+      {qr.rec ? (
+        <MiniProfile rec={qr.rec} name={qr.rec.name} code={qr.rec.horseCode} />
+      ) : (
+        <p className="text-lg text-gray-700">
+          <span className="font-mono">{qr.code}</span>: not a horse on the website (old or wrong plate?).
+        </p>
+      )}
     </div>
   );
 }
