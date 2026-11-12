@@ -2,13 +2,23 @@
 web_stream.py — lets horse_monitor.py show its window on the website (live, with outlines,
 names and temperatures drawn on it). Only uses Python's standard library + OpenCV.
 
-horse_monitor.py calls publish(view) once per frame; this file serves it as:
+The script calls publish(view) with each picture; this file serves it as:
     http://<pi>:8000/stream.mjpg?key=...   live video (what the website Dashboard shows)
     http://<pi>:8000/snapshot.jpg?key=...  one still picture
     http://<pi>:8000/health                 {"ok": true} while frames are arriving (used by heartbeat.py)
     http://<pi>:8000/                       test page
 
 Tailscale Funnel then gives port 8000 a public https:// address for the website.
+
+Speed: publish() only hands the picture over (a copy, ~2 ms). Shrinking it for the website
+(--stream-width, default 960 px) and JPEG compression happen in this file's own thread, so the
+detection loop never waits for the stream.
+
+Smooth video (camera speed instead of YOLO speed): call publish() from a camera thread with every
+camera frame and pass overlay=draw, a function that draws the LATEST outlines / names / temperatures:
+    stream.publish(frame, overlay=draw_latest)      # draw_latest(img, scale): img is already resized,
+                                                    # multiply your coordinates by scale
+The overlay runs in the stream's thread on the small picture, so it costs the detection loop nothing.
 """
 import json
 import threading
@@ -20,10 +30,16 @@ import cv2
 
 
 class MjpegServer:
-    def __init__(self, port=8000, key="", fps=8.0, quality=75, host="0.0.0.0"):
+    def __init__(self, port=8000, key="", fps=8.0, quality=75, host="0.0.0.0", width=960):
         self.key, self.min_gap, self.quality = key or "", 1.0 / max(fps, 0.5), int(quality)
+        self.width = int(width or 0)                 # website picture width (0 = full size)
         self.jpeg, self.stamp, self.last_publish = None, 0.0, 0.0
         self.cond = threading.Condition()
+        self._todo = None                            # (picture, overlay, time) waiting for the encoder
+        self._todo_cond = threading.Condition()
+        self.encoded = 0                             # pictures sent to the website (for fps checks)
+        self.encode_ms = 0.0
+        threading.Thread(target=self._encoder, daemon=True).start()
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -88,17 +104,48 @@ class MjpegServer:
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         print(f"Web stream: http://{host}:{port}/stream.mjpg" + ("?key=..." if self.key else "  (WARNING: no --stream-key)"))
 
-    def publish(self, bgr):
-        """Call once per frame with the picture to show (skipped if faster than the stream fps)."""
+    def publish(self, bgr, overlay=None):
+        """Hand over the picture to show. Returns at once (~2 ms): resizing + JPEG happen in the stream's
+        own thread. Pictures faster than --stream-fps are skipped. overlay(img, scale), if given, draws on
+        the resized picture in the stream's thread (for smooth video from a camera thread)."""
         now = time.time()
-        if now - self.last_publish < self.min_gap:
+        if bgr is None or now - self.last_publish < self.min_gap:
             return
-        ok, enc = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
-        if not ok:
-            return
-        with self.cond:
-            self.jpeg, self.stamp, self.last_publish = enc.tobytes(), now, now
-            self.cond.notify_all()
+        self.last_publish = now
+        with self._todo_cond:
+            self._todo = (bgr.copy(), overlay, now)   # copy: the caller may draw on its frame next
+            self._todo_cond.notify()
+
+    def _encoder(self):
+        while True:
+            with self._todo_cond:
+                while self._todo is None:
+                    self._todo_cond.wait()
+                img, overlay, stamp = self._todo
+                self._todo = None
+            t = time.time()
+            try:
+                h, w = img.shape[:2]
+                scale = 1.0
+                if self.width and w > self.width:
+                    scale = self.width / w
+                    img = cv2.resize(img, (self.width, int(round(h * scale))), interpolation=cv2.INTER_AREA)
+                if overlay is not None:
+                    try:
+                        overlay(img, scale)
+                    except Exception as e:           # a drawing bug must never stop the video
+                        print(f"Web stream: overlay error ({e})")
+                ok, enc = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+            except Exception as e:
+                print(f"Web stream: can't encode picture ({e})")
+                continue
+            if not ok:
+                continue
+            self.encode_ms = (time.time() - t) * 1000
+            with self.cond:
+                self.jpeg, self.stamp = enc.tobytes(), stamp
+                self.encoded += 1
+                self.cond.notify_all()
 
     def wait_frame(self, timeout, newer_than=0.0):
         with self.cond:
