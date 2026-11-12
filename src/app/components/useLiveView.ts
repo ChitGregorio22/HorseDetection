@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getLatestPiReading, getLiveView, subscribeToChanges, toLiveView, type LiveHorse, type LiveView } from '../lib/api';
+import { getLatestPiReading, getLiveView, subscribeToChanges, toLiveView, type LiveHorse, type LiveView, type PiReading } from '../lib/api';
 
 const POLL_MS = 3000;
 /** The Pi sends every ~2 s. Older than this = the monitor stopped or lost internet. */
@@ -13,7 +13,7 @@ export function useLiveView(enabled: boolean) {
   const [view, setView] = useState<LiveView | null | undefined>(undefined);
   const [installed, setInstalled] = useState(true);
   const [now, setNow] = useState(Date.now());
-  const [lastPiReading, setLastPiReading] = useState<{ id: number; horse_id: string; recorded_at: string } | null>(null);
+  const [lastPiReading, setLastPiReading] = useState<PiReading | null>(null);
 
   const refresh = useCallback(async () => {
     try {

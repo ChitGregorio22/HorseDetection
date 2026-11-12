@@ -43,13 +43,6 @@ export default function App() {
   const approved = Boolean(profile?.approved);
   const deviceStatus = useDeviceStatus(Boolean(session) && approved);
   const live = useLiveView(Boolean(session) && approved);
-  const [followCamera, setFollowCamera] = useState(() => {
-    try {
-      return localStorage.getItem("followCamera") !== "off";
-    } catch {
-      return true;
-    }
-  });
 
   const selectedHorse = horses.find((horse) => horse.id === selectedHorseId) ?? null;
 
@@ -106,8 +99,8 @@ export default function App() {
     return subscribeToChanges("app", ["temperature_readings", "alerts", "horses"], () => refreshHorses());
   }, [session, approved, refreshHorses, refreshSettings]);
 
-  // ---- Follow the camera: when the Pi identifies a horse, the Dashboard switches to it.
-  //      Picking another horse by hand sticks until the camera sees a different horse (or this one again).
+  // ---- The horse the camera identifies (live view or newest Pi reading) also becomes the horse that
+  //      History opens with. The Dashboard itself always shows the stall, never a hand-picked horse.
   const liveCode = live.main?.status === "identified" ? live.main.horse_code : null;
   const followed = useRef<string | null>(null);
   useEffect(() => {
@@ -115,13 +108,13 @@ export default function App() {
       followed.current = null;
       return;
     }
-    if (!followCamera || liveCode === followed.current) return;
+    if (liveCode === followed.current) return;
     const match = horses.find((horse) => horse.horseCode === liveCode);
     if (match) {
       setSelectedHorseId(match.id);
       followed.current = liveCode;
     }
-  }, [liveCode, horses, followCamera]);
+  }, [liveCode, horses]);
 
   // No live view from the Pi? Follow it through its readings instead: a NEW Pi reading (sent in the last
   // 3 minutes) switches the Dashboard to that horse.
@@ -133,20 +126,10 @@ export default function App() {
     seenReading.current = piReading.id;
     if (!isFirst) refreshHorses(); // a new Pi reading: update the horse cards even if realtime is down
     const recent = Date.now() - new Date(piReading.recorded_at).getTime() < 180000;
-    if (followCamera && !live.fresh && recent && horses.some((h) => h.id === piReading.horse_id)) {
+    if (!live.fresh && recent && horses.some((h) => h.id === piReading.horse_id)) {
       setSelectedHorseId(piReading.horse_id);
     }
-  }, [piReading, followCamera, live.fresh, horses, refreshHorses]);
-
-  const changeFollowCamera = useCallback((on: boolean) => {
-    setFollowCamera(on);
-    followed.current = null;
-    try {
-      localStorage.setItem("followCamera", on ? "on" : "off");
-    } catch {
-      /* private window: just not remembered */
-    }
-  }, []);
+  }, [piReading, live.fresh, horses, refreshHorses]);
 
   const handleRegisteredHorse = useCallback(
     async (horse: { id: string }) => {
@@ -247,16 +230,6 @@ export default function App() {
           </div>
           <div className="flex items-center gap-6 text-right">
             <div>
-              <div className="text-2xl">{selectedHorse?.name ?? "No horse registered"}</div>
-              <div className="text-lg opacity-90">
-                {!selectedHorse
-                  ? "Open Register to begin"
-                  : liveCode && liveCode === selectedHorse.horseCode
-                    ? "📷 In the stall now"
-                    : "Currently Monitoring"}
-              </div>
-            </div>
-            <div className="border-l-2 border-green-400 pl-6">
               <div className="text-lg">{profile?.full_name || session.user.email}</div>
               <div className="text-base opacity-90">{profile ? ROLE_LABELS[profile.role] : ""}</div>
               <button
@@ -305,17 +278,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto">
         {view === "dashboard" && (
-          <Dashboard
-            horse={selectedHorse}
-            horses={horses}
-            settings={settings}
-            devices={deviceStatus.devices}
-            live={live}
-            followCamera={followCamera}
-            onFollowCameraChange={changeFollowCamera}
-            onSelectHorse={setSelectedHorseId}
-            onRegister={can.registerHorses ? () => setCurrentView("register") : undefined}
-          />
+          <Dashboard horses={horses} settings={settings} devices={deviceStatus.devices} live={live} />
         )}
         {view === "history" && <HistoryView horse={selectedHorse} settings={settings} />}
         {view === "alerts" && (

@@ -684,17 +684,46 @@ export function toLiveView(deviceId: string, state: Record<string, unknown>, upd
   };
 }
 
-/** Newest reading sent by a Pi (any horse): the Dashboard follows it when there is no live view. */
-export async function getLatestPiReading(): Promise<{ id: number; horse_id: string; recorded_at: string } | null> {
-  const { data, error } = await supabase
+export interface PiReading {
+  id: number;
+  horse_id: string;
+  recorded_at: string;
+  body_temp: number;
+  surface_temp: number | null;
+  env_temp: number | null;
+  humidity: number | null;
+  id_method: IdMethod | null;
+}
+
+/** Newest reading sent by a Pi (any horse, by its own time): the Dashboard shows that horse as "in the stall". */
+export async function getLatestPiReading(): Promise<PiReading | null> {
+  let res: { data: unknown[] | null; error: { message: string } | null } = await supabase
     .from("temperature_readings")
-    .select("id, horse_id, recorded_at")
+    .select("id, horse_id, recorded_at, body_temp, surface_temp, env_temp, humidity, id_method")
     .not("device_id", "is", null)
-    .order("id", { ascending: false })
+    .order("recorded_at", { ascending: false })
     .limit(1);
-  if (error) return null;
-  const r = (data ?? [])[0] as { id: number; horse_id: string; recorded_at: string } | undefined;
-  return r ? { id: Number(r.id), horse_id: r.horse_id, recorded_at: r.recorded_at } : null;
+  if (res.error && /surface_temp|id_method|column/i.test(res.error.message)) {
+    res = await supabase
+      .from("temperature_readings")
+      .select("id, horse_id, recorded_at, body_temp, env_temp, humidity")
+      .not("device_id", "is", null)
+      .order("recorded_at", { ascending: false })
+      .limit(1);
+  }
+  if (res.error) return null;
+  const r = (res.data ?? [])[0] as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return {
+    id: Number(r.id),
+    horse_id: String(r.horse_id),
+    recorded_at: String(r.recorded_at),
+    body_temp: Number(r.body_temp),
+    surface_temp: num(r.surface_temp),
+    env_temp: num(r.env_temp),
+    humidity: num(r.humidity),
+    id_method: (r.id_method as IdMethod) ?? null,
+  };
 }
 
 // ---------- Profile photos (supabase/10_profile_photos.sql) ----------

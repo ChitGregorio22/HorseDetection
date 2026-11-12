@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, ExternalLink, Maximize, RefreshCw } from 'lucide-react';
+import { Camera, CameraOff, Maximize, RefreshCw } from 'lucide-react';
 
 interface LiveCameraProps {
   /** MJPEG stream from the Raspberry Pi, e.g. https://horse-cam.tailnet.ts.net/stream.mjpg?key=... */
   url: string | null;
   /** Shown as an overlay on the video */
   label?: string;
+  /** false = no LIVE/OFFLINE badge in the title bar (the Dashboard shows it in "In the stall now") */
+  showStatus?: boolean;
+  /** told whenever the picture goes live / connecting / offline */
+  onStateChange?: (state: CameraState | 'not-set-up') => void;
 }
 
-type CameraState = 'connecting' | 'live' | 'offline';
+export type CameraState = 'connecting' | 'live' | 'offline';
 
 /** Adds a changing number so "Retry" really reconnects instead of reusing a cached image. */
 function withRetryParam(url: string, attempt: number) {
   return `${url}${url.includes('?') ? '&' : '?'}t=${attempt}`;
 }
 
-export function LiveCamera({ url, label }: LiveCameraProps) {
+export function LiveCamera({ url, label, showStatus = true, onStateChange }: LiveCameraProps) {
   const [state, setState] = useState<CameraState>('connecting');
   const [attempt, setAttempt] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +50,13 @@ export function LiveCamera({ url, label }: LiveCameraProps) {
 
   const isLive = state === 'live' && !blockedByBrowser;
 
+  useEffect(() => {
+    onStateChange?.(!url || blockedByBrowser ? 'not-set-up' : state);
+  }, [state, url, blockedByBrowser, onStateChange]);
+
+  // The picture can't be right-clicked (save / copy address / open) or dragged out
+  const noMenu = (e: React.MouseEvent) => e.preventDefault();
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border-4 border-gray-800 bg-gray-900">
       {/* Title bar */}
@@ -53,7 +64,7 @@ export function LiveCamera({ url, label }: LiveCameraProps) {
         <div className="flex items-center gap-3">
           <Camera className="h-7 w-7" />
           <h2 className="text-2xl">Live Camera</h2>
-          {url && !blockedByBrowser && (
+          {showStatus && url && !blockedByBrowser && (
             <span
               className={`flex items-center gap-2 rounded-full px-3 py-1 text-base font-semibold ${
                 isLive ? 'bg-red-600' : state === 'connecting' ? 'bg-yellow-600' : 'bg-gray-600'
@@ -85,21 +96,16 @@ export function LiveCamera({ url, label }: LiveCameraProps) {
               <Maximize className="h-5 w-5" />
               <span className="hidden sm:inline">Full screen</span>
             </button>
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              title="Open in new tab"
-              className="flex items-center rounded-lg bg-gray-700 px-3 py-2 hover:bg-gray-600"
-            >
-              <ExternalLink className="h-5 w-5" />
-            </a>
           </div>
         )}
       </div>
 
       {/* Video area */}
-      <div ref={containerRef} className="relative flex aspect-video w-full flex-1 items-center justify-center bg-black">
+      <div
+        ref={containerRef}
+        onContextMenu={noMenu}
+        className="relative flex aspect-video w-full flex-1 select-none items-center justify-center bg-black"
+      >
         {!url ? (
           <Message
             title="Camera not set up yet"
@@ -118,7 +124,10 @@ export function LiveCamera({ url, label }: LiveCameraProps) {
               alt="Live camera feed from the Raspberry Pi"
               onLoad={() => setState('live')}
               onError={() => setState('offline')}
-              className={`h-full w-full object-contain ${state === 'offline' ? 'invisible' : ''}`}
+              onContextMenu={noMenu}
+              onDragStart={noMenu}
+              draggable={false}
+              className={`pointer-events-none h-full w-full object-contain ${state === 'offline' ? 'invisible' : ''}`}
             />
 
             {state === 'connecting' && (
