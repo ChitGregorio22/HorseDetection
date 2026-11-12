@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getLatestPiReading, getLiveView, subscribeToChanges, toLiveView, type LiveHorse, type LiveView, type PiReading } from '../lib/api';
 
-const POLL_MS = 3000;
+const POLL_MS = 2000; // fallback if realtime is down: realtime pushes changes at once
 /** The Pi sends every ~2 s. Older than this = the monitor stopped or lost internet. */
 export const LIVE_STALE_MS = 15000;
 

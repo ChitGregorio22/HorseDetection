@@ -29,9 +29,11 @@ kept, and the website ignores a reading it already has. Readings taken while off
 **Body temperature is final on the Pi** (surface + offset + DHT22 correction from `compensation.json`). The website
 never adds the old calibration offset to these readings (Settings shows it as *not used for Pi readings*).
 
-**Dashboard**: camera on the left; on the right the horse in the stall, its temperature, and the **air temperature and
-humidity** (DHT22, live). Below: the latest stored reading (body, coat, air, humidity, time, *via QR*), trend chart.
-With **Follow the camera** ticked, the Dashboard switches to each horse as its reading arrives.
+**Dashboard ("In the stall now", real time)**: thesisv2.py calls `web.set_live({...})` every frame with what the
+camera sees (YOLO sees a horse? who is it, named by fingerprint or QR plate, temperatures, DHT22). A change goes to
+the website within about half a second: *Horse detected → QR plate seen → Jafar · via QR plate · 37.8 °C → No horse
+in view*. Needs `08_live_view.sql`. Without it (or with an older thesisv2.py) the Dashboard follows the once-a-minute
+readings instead.
 
 **Profile photos**: at the end of a website registration the Pi sends up to 6 whole-camera pictures of the horse
 (about 1280 px). On **Horses → profile**, the photo is shown large and uncropped; owners/admins use **Change photo** to

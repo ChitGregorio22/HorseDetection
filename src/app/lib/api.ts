@@ -634,6 +634,8 @@ export interface LiveHorse {
   best_guess: string | null;
   body_temp: number | null;
   surface_temp: number | null;
+  /** how the Pi named it: fingerprint or the stall's QR plate */
+  method: IdMethod | null;
 }
 
 export interface LiveView {
@@ -645,6 +647,8 @@ export interface LiveView {
   horses: LiveHorse[];
   air_temp: number | null;
   humidity: number | null;
+  /** QR plates the camera read in the last frame (horse codes) */
+  qr: string[];
 }
 
 /** Newest live view from any Pi. null = nothing sent yet; undefined = 08_live_view.sql isn't installed. */
@@ -672,6 +676,7 @@ export function toLiveView(deviceId: string, state: Record<string, unknown>, upd
     registering: (state.registering as string) ?? null,
     air_temp: num(state.air_temp),
     humidity: num(state.humidity),
+    qr: Array.isArray(state.qr) ? (state.qr as unknown[]).map((c) => String(c).toUpperCase()) : [],
     horses: horses.map((h) => ({
       status: (h.status as LiveHorse["status"]) ?? "identifying",
       name: (h.name as string) ?? null,
@@ -680,6 +685,7 @@ export function toLiveView(deviceId: string, state: Record<string, unknown>, upd
       best_guess: (h.best_guess as string) ?? null,
       body_temp: num(h.body_temp),
       surface_temp: num(h.surface_temp),
+      method: h.method === "qr" || h.method === "fingerprint" ? (h.method as IdMethod) : null,
     })),
   };
 }

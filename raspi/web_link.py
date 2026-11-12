@@ -6,8 +6,10 @@ With  python3 thesisv2.py --web ...  (or horse_monitor.py) the monitor:
     registration (30 photos, view checklist), sending live progress to the website,
   * when done, creates the horse on the website with one of its crops as the photo and remembers
     the website's horse ID (horse_code) in horses.db, so later readings attach to the right horse,
-  * every ~2 s tells the website what the camera sees right now (which horse, how sure, its
-    temperature, air temperature, humidity): the Dashboard follows it live,
+  * tells the website what the camera sees RIGHT NOW: thesisv2.py calls web.set_live({...}) every
+    frame (YOLO sees a horse? who, named by fingerprint or QR plate, temperatures, DHT22). A change
+    (horse arrives / leaves / is named / QR plate read) goes out within ~0.5 s, otherwise every 2 s,
+    so the Dashboard's "In the stall now" is live (supabase/08_live_view.sql),
   * uploads the readings the script hands it: every 5 s horse_monitor.py / thesisv2.py passes the oldest
     unsent CONFIRMED readings from horses.db to web.queue_reading({...}) (final body temp, surface temp,
     air temp, humidity, recorded_at, fingerprint/QR). queue_reading() never blocks; a background thread
@@ -48,7 +50,8 @@ from pathlib import Path
 
 POLL_SEC = 2.0          # how often to ask "anything to register?" / send progress / live view
 HEARTBEAT_SEC = 30.0    # website shows Offline after 90 s without one
-LIVE_SEC = 2.0          # live view ("Bella in the stall, 37.9 C") at most this often
+LIVE_SEC = 2.0          # live view refresh while nothing changes (the website calls it stale after 15 s)
+LIVE_MIN_GAP = 0.4      # a change is sent at once, but not more often than this
 UPLOAD_SEC = 60.0       # older scripts only: one reading per identified horse per minute
 MIN_SAMPLES = 5         # older scripts only: a minute needs at least this many temperature samples
 BATCH_MAX = 30          # readings per call to device_submit_readings
@@ -95,6 +98,9 @@ class WebLink:
         self.online = None
         self.last_beat = 0.0
         self.live_latest = None           # newest live-view state, not sent yet
+        self._live_key = None             # what the last state "means" (who, how), to spot changes
+        self._live_event = threading.Event()
+        self._live_sent_t = 0.0
         self.pending = {}                 # local_id -> reading waiting to be sent (in memory; horses.db is the backup)
         self.pending_lock = threading.Lock()
         self.uploaded = queue.Queue()     # (local_id, ok, error) for poll_uploaded()
@@ -113,6 +119,7 @@ class WebLink:
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._reading_loop, daemon=True).start()
         threading.Thread(target=self._photo_loop, daemon=True).start()
+        threading.Thread(target=self._live_loop, daemon=True).start()
         print(f"Web link: {self.url} (registrations from the website, heartbeat every {HEARTBEAT_SEC:.0f} s)")
 
     @classmethod
@@ -168,18 +175,6 @@ class WebLink:
                     if cmd:
                         with self.lock:
                             self.inbox = cmd
-                with self.lock:
-                    live, self.live_latest = self.live_latest, None
-                if live is not None:
-                    try:
-                        self.rpc("device_live", p_device_key=self.device_key, p_state=live)
-                    except urllib.error.HTTPError as e:
-                        if e.code == 404:          # update 08 not installed yet: live view is optional
-                            if not getattr(self, "_warned_live", False):
-                                print("Web link: live view needs supabase/08_live_view.sql (skipping it for now)")
-                                self._warned_live = True
-                        else:
-                            raise
                 self._poll_photo_request()
                 if time.time() - self.last_beat >= HEARTBEAT_SEC:
                     with self.lock:
@@ -217,6 +212,59 @@ class WebLink:
             except Exception:
                 self.jobs.put(job)              # keep it and try again next round
                 raise
+
+    # ------------------------------------------------------------ live view (thesisv2.py: web.set_live)
+    def set_live(self, state):
+        """Every frame (never blocks): what the camera sees right now.
+            {"present": True,                      # YOLO sees a horse (in the stall zone)
+             "horses": [{"status": "identified",   # or "identifying" (being checked) / "unknown" (not registered)
+                         "name": "Jafar", "horse_code": "HTM-92578BC8",
+                         "method": "qr",            # or "fingerprint"
+                         "confidence": 0.84,        # fingerprint similarity (None for QR)
+                         "body_temp": 37.8, "surface_temp": 33.1}],
+             "qr": ["HTM-92578BC8"],                # QR plates read in this frame (optional)
+             "air_temp": 26.4, "humidity": 78.0,    # DHT22 (None if no reading)
+             "mode": "recognise"}                   # or "registering" (+ "registering": "Name")
+        A change in who / how / present is sent within ~0.5 s; otherwise the latest state every 2 s."""
+        st = dict(state)
+        st.setdefault("time", time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+        horses = st.get("horses") or []
+        key = (bool(st.get("present")), st.get("mode"), tuple(sorted(st.get("qr") or [])),
+               tuple((h.get("status"), h.get("name"), h.get("method")) for h in horses))
+        with self.lock:
+            self.live_latest = st
+            changed = key != self._live_key
+            self._live_key = key
+        if changed:
+            self._live_event.set()
+
+    def _live_loop(self):
+        warned = False
+        while True:
+            since = time.time() - self._live_sent_t
+            changed = self._live_event.wait(timeout=max(0.05, LIVE_SEC - since))
+            if changed:
+                gap = LIVE_MIN_GAP - (time.time() - self._live_sent_t)
+                if gap > 0:
+                    time.sleep(gap)
+                self._live_event.clear()
+            elif time.time() - self._live_sent_t < LIVE_SEC:
+                continue
+            with self.lock:
+                live = self.live_latest
+            if live is None:
+                continue
+            self._live_sent_t = time.time()
+            try:
+                self.rpc("device_live", p_device_key=self.device_key, p_state=live)
+            except urllib.error.HTTPError as e:
+                if e.code == 404 and not warned:       # update 08 not installed: live view is optional
+                    print("Web link: the live view needs supabase/08_live_view.sql (skipping it for now)")
+                    warned = True
+                if e.code == 404:
+                    self._live_sent_t = time.time() + 60    # ask again in a minute
+            except Exception:
+                self._live_sent_t = time.time() + 3         # offline: the heartbeat/readings report it
 
     # ------------------------------------------------------------ readings (thesisv2.py: web.queue_reading)
     def queue_reading(self, reading, _from_script=True):
@@ -403,8 +451,7 @@ class WebLink:
                      "humidity": None if rh is None else round(rh, 1),
                      "registering": g.get("reg_name") if mode == "registering" else None,
                      "time": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
-            with self.lock:
-                self.live_latest = state
+            self.set_live(state)
             self._last_live = now_t
 
     def _registration(self, g):
@@ -652,6 +699,12 @@ if __name__ == "__main__":
             print("✓ Connected: the website now shows this Pi as Online.")
             link.rpc("device_update_registration", p_device_key=link.device_key, p_id=0)
             print("✓ Remote registration is installed in the database.")
+            try:                                 # live view (the Dashboard's "In the stall now" in real time)
+                link.rpc("device_live", p_device_key=link.device_key,
+                         p_state={"present": False, "horses": [], "mode": "test", "time": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+                print("✓ Live view (08_live_view.sql) is installed.")
+            except urllib.error.HTTPError as e8:
+                print(f"✗ Live view isn't installed: run supabase/08_live_view.sql ({e8.code}).")
             try:                                 # empty batch: proves 09_pi_readings_batch.sql is installed
                 link.rpc("device_submit_readings", p_device_key=link.device_key, p_readings=[])
                 print("✓ Reading upload in batches (09_pi_readings_batch.sql) is installed.")

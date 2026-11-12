@@ -31,7 +31,8 @@ const LEVEL_STYLE: Record<Level, { text: string; color: string; bg: string; bord
 type Stall =
   | { kind: 'identified'; name: string; code: string | null; known: boolean; body: number | null; surface: number | null;
       how: 'qr' | 'fingerprint' | null; confidence: number | null; at: string | null }
-  | { kind: 'identifying'; body: number | null }
+  | { kind: 'identifying'; body: number | null; qrName: string | null }
+  | { kind: 'detected'; qrName: string | null }
   | { kind: 'unknown'; body: number | null; guess: string | null }
   | { kind: 'registering'; name: string | null }
   | { kind: 'empty'; lastSeen: { name: string; at: string } | null }
@@ -58,14 +59,19 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
   if (live.fresh && live.view) {
     const main = live.main;
     others = live.view.horses.filter((h) => h !== main);
+    // a QR plate the camera can read right now (name from the website's horse list)
+    const qrCode = live.view.qr[0];
+    const qrName = qrCode ? horses.find((h) => h.horseCode.toUpperCase() === qrCode)?.name ?? qrCode : null;
     if (live.view.mode === 'registering') stall = { kind: 'registering', name: live.view.registering };
+    else if (!main && live.view.present) stall = { kind: 'detected', qrName };
     else if (!main) stall = { kind: 'empty', lastSeen: null };
-    else if (main.status === 'identifying') stall = { kind: 'identifying', body: main.body_temp };
+    else if (main.status === 'identifying') stall = { kind: 'identifying', body: main.body_temp, qrName };
     else if (main.status === 'unknown') stall = { kind: 'unknown', body: main.body_temp, guess: main.best_guess };
     else {
       const rec = main.horse_code ? horses.find((h) => h.horseCode === main.horse_code) : undefined;
-      // a QR-named horse shows "via QR plate" when its newest reading says so
-      const how = readingRecent && reading && rec && reading.horse_id === rec.id ? reading.id_method : 'fingerprint';
+      // the Pi says how it named the horse; older Pi code: take it from the newest reading
+      const how =
+        main.method ?? (readingRecent && reading && rec && reading.horse_id === rec.id ? reading.id_method : 'fingerprint');
       stall = {
         kind: 'identified', name: main.name ?? rec?.name ?? 'Unknown', code: main.horse_code, known: !!rec,
         body: main.body_temp, surface: main.surface_temp, how, confidence: main.confidence, at: live.view.updated_at,
@@ -106,7 +112,7 @@ export function Dashboard({ horses, settings, devices, live }: DashboardProps) {
         <div className="flex flex-col gap-4">
           <div className="rounded-2xl border-2 border-gray-200 bg-white p-5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xl text-gray-700">
+              <div className="flex items-center gap-2 whitespace-nowrap text-xl text-gray-700">
                 <Camera className="h-6 w-6" /> In the stall now
               </div>
               <CameraBadge state={camState} />
@@ -154,7 +160,7 @@ function CameraBadge({ state }: { state: CameraState | 'not-set-up' }) {
   const look = {
     live: { text: 'LIVE', cls: 'bg-red-600 text-white', dot: 'bg-white animate-pulse' },
     connecting: { text: 'CONNECTING', cls: 'bg-yellow-500 text-white', dot: 'bg-white' },
-    offline: { text: 'CAMERA OFFLINE', cls: 'bg-gray-200 text-gray-700', dot: 'bg-gray-500' },
+    offline: { text: 'OFFLINE', cls: 'bg-gray-200 text-gray-700', dot: 'bg-gray-500' },
     'not-set-up': { text: 'NO CAMERA', cls: 'bg-gray-200 text-gray-700', dot: 'bg-gray-500' },
   }[state];
   return (
@@ -196,14 +202,24 @@ function StallView({ stall, levelOf }: { stall: Stall; levelOf: (t: number) => L
           <p className="mt-2 text-lg text-gray-600">Identification resumes when the registration ends.</p>
         </div>
       );
+    case 'detected':
     case 'identifying':
       return (
         <div className="mt-4">
-          <div className="flex items-center gap-2 text-3xl text-gray-700">
-            <ScanSearch className="h-8 w-8 animate-pulse" /> Identifying…
+          <div className="text-3xl text-gray-800">Horse detected</div>
+          <div className="mt-2 flex items-center gap-2 text-xl text-gray-700">
+            <ScanSearch className="h-6 w-6 animate-pulse" /> Identifying…
           </div>
-          {stall.body != null && <BigTemp temp={stall.body} level={levelOf(stall.body)} />}
-          <p className="mt-2 text-lg text-gray-600">A horse is in view. The camera is checking who it is (fingerprint or QR plate).</p>
+          {stall.kind === 'identifying' && stall.body != null && <BigTemp temp={stall.body} level={levelOf(stall.body)} />}
+          {stall.qrName ? (
+            <p className="mt-3 inline-flex items-center gap-1 rounded-md bg-purple-100 px-2 py-1 text-lg text-purple-800">
+              <QrCode className="h-5 w-5" /> QR plate seen: {stall.qrName}
+            </p>
+          ) : (
+            <p className="mt-2 text-lg text-gray-600">
+              The camera (YOLO) sees a horse and is checking who it is by its fingerprint or the stall's QR plate.
+            </p>
+          )}
         </div>
       );
     case 'unknown':
