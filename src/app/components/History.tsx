@@ -6,10 +6,35 @@ import { downloadReadingsCsv, getDailySummary, getReadingsSince, subscribeToChan
 
 interface HistoryProps {
   horse: HorseRecord | null;
+  horses: HorseRecord[];
+  onSelectHorse: (id: string) => void;
   settings: Settings;
 }
 
-export function History({ horse, settings }: HistoryProps) {
+/** Which horse's history to show (newest reading first in the list) */
+function HorsePicker({ horse, horses, onSelectHorse }: Pick<HistoryProps, 'horse' | 'horses' | 'onSelectHorse'>) {
+  if (horses.length === 0) return null;
+  const sorted = [...horses].sort((a, b) => (b.lastUpdated ?? '').localeCompare(a.lastUpdated ?? ''));
+  return (
+    <label className="flex items-center gap-3 text-xl text-gray-700">
+      Horse:
+      <select
+        value={horse?.id ?? ''}
+        onChange={(e) => onSelectHorse(e.target.value)}
+        className="min-h-12 rounded-lg border-2 border-gray-300 bg-white px-3 text-xl text-gray-900"
+      >
+        {sorted.map((h) => (
+          <option key={h.id} value={h.id}>
+            {h.name}
+            {h.lastUpdated ? '' : ' (no readings yet)'}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function History({ horse, horses, onSelectHorse, settings }: HistoryProps) {
   const [days, setDays] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,13 +61,14 @@ export function History({ horse, settings }: HistoryProps) {
 
   if (!horse || (!loading && days.length === 0)) {
     return (
-      <div className="p-6">
-        <div className="flex min-h-[480px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
+      <div className="p-6 space-y-6">
+        <HorsePicker horse={horse} horses={horses} onSelectHorse={onSelectHorse} />
+        <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
           <div className="mb-5 text-7xl">🐎</div>
           <h1 className="text-4xl">No temperature history</h1>
           <p className="mt-3 text-xl text-gray-600">
             {horse
-              ? `No readings recorded for ${horse.name} yet. History builds up as the thermal camera sends readings.`
+              ? `No readings recorded for ${horse.name} yet. Pick another horse above, or wait for the camera to send readings.`
               : 'Register a horse first. History builds up as the thermal camera sends readings.'}
           </p>
         </div>
@@ -54,7 +80,6 @@ export function History({ horse, settings }: HistoryProps) {
     return <div className="p-6 text-2xl text-gray-600">Loading history…</div>;
   }
 
-  const selectedHorse = horse.name;
   const { warning_threshold: warnAt, fever_threshold: feverAt } = settings;
 
   // One row per day: average body temperature (chart/table), peak decides the day's status
@@ -110,8 +135,8 @@ export function History({ horse, settings }: HistoryProps) {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl mb-2">Temperature History</h1>
-          <p className="text-xl text-gray-600">Horse: {selectedHorse}</p>
+          <h1 className="text-4xl mb-3">Temperature History</h1>
+          <HorsePicker horse={horse} horses={horses} onSelectHorse={onSelectHorse} />
         </div>
         <CsvDownload horse={horse} />
       </div>

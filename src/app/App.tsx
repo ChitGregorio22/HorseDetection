@@ -62,7 +62,10 @@ export default function App() {
       const list = await getHorseRecords();
       setHorses(list);
       setSelectedHorseId((current) =>
-        current && list.some((horse) => horse.id === current) ? current : list[0]?.id ?? null,
+        current && list.some((horse) => horse.id === current)
+          ? current
+          : // first time: the horse with the newest reading (History opens on it)
+            [...list].sort((x, y) => (y.lastUpdated ?? "").localeCompare(x.lastUpdated ?? ""))[0]?.id ?? null,
       );
       setLoadError("");
     } catch (error) {
@@ -280,7 +283,9 @@ export default function App() {
         {view === "dashboard" && (
           <Dashboard horses={horses} settings={settings} devices={deviceStatus.devices} live={live} />
         )}
-        {view === "history" && <HistoryView horse={selectedHorse} settings={settings} />}
+        {view === "history" && (
+          <HistoryView horse={selectedHorse} horses={horses} onSelectHorse={setSelectedHorseId} settings={settings} />
+        )}
         {view === "alerts" && (
           <Alerts selectedHorse={selectedHorse?.name ?? ""} settings={settings} canHandle={can.handleAlerts} />
         )}
