@@ -136,9 +136,42 @@
   html {
     /* One size for the whole site that follows the screen: 14px on phones → 16px from tablets up.
        Every Tailwind size is in rem, so text, spacing and buttons all scale together. */
-    font-size: clamp(14px, 12.2px + 0.5vw, var(--font-size));
+    font-size: 14px;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+  }
+
+  /* iPhones draw drop-downs and text boxes in their own style (grey gradient, inner shadow, extra
+     rounding): use the website's style on every phone instead. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea {
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: #ffffff;
+  }
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: #ffffff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23374151' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 1.1rem;
+    padding-right: 2.2rem !important;
+  }
+  /* tap highlight and text inflation on iPhone */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, a, select, input, textarea {
+    touch-action: manipulation;
+  }
+
+  @media (min-width: 480px) {
+    html { font-size: 15px; }
+  }
+  @media (min-width: 768px) {
+    html { font-size: var(--font-size); }
   }
 
   /* Phones: typing boxes stay at 16px, otherwise iPhones zoom the page in when you tap them */
