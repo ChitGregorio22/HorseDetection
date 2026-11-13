@@ -211,7 +211,9 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
             className="w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:border-blue-600 focus:outline-none disabled:bg-gray-100"
           />
           <p className="text-lg text-gray-600">
-            Shown on the Dashboard for everyone. Copy the <strong>https://</strong> Tailscale Funnel address of the Raspberry Pi and add <span className="font-mono">/stream.mjpg?key=…</span> at the end. Leave empty to hide the camera.
+            Shown on the Dashboard for everyone. Copy the <strong>https://</strong> Tailscale Funnel address of the Raspberry Pi and add <span className="font-mono">/stream.mjpg?key=…</span> at the end. Leave empty to hide the camera. The H.264 video
+            (MediaMTX, <span className="font-mono">:8443/cam_&lt;key&gt;/index.m3u8</span>) is found from this address automatically; the
+            JPEG stream is the fallback.
           </p>
           {form.camera_stream_url?.startsWith('http://') && (
             <p className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-3 text-lg text-yellow-900">
