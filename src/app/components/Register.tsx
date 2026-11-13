@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { NoPhoto } from "./Brand";
 import {
   AlertTriangle,
   Check,
@@ -180,7 +181,7 @@ export function Register({ settings, devices, onRegistered, onViewDashboard }: R
                 {horse.photo ? (
                   <img src={horse.photo} alt={`Photo of ${horse.name} from the stall camera`} className="max-h-[420px] w-auto object-contain" />
                 ) : (
-                  <div className="py-24 text-7xl">🐎</div>
+                  <NoPhoto className="h-72 w-full" />
                 )}
               </div>
 

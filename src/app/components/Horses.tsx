@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, ArchiveRestore, Calendar, Pencil, Plus, Thermometer, Trash2, UserMinus } from "lucide-react";
+import { LogoMark, NoPhoto } from "./Brand";
+import { Activity, ArchiveRestore, Calendar, ChevronLeft, ChevronRight, Pencil, Plus, Thermometer, Trash2, UserMinus } from "lucide-react";
 import { QrPlate } from "./QrPlate";
 import { ProfilePhotos } from "./ProfilePhotos";
 import { fmtHumidity, fmtTemp, fmtWhen, MethodBadge, RecentReadingsTable, useRecentReadings } from "./ReadingBits";
@@ -67,13 +68,41 @@ export function Horses({
   onChanged,
 }: HorsesProps) {
   const currentHorse = horses.find((horse) => horse.id === selectedHorseId) ?? null;
+
+  // ---- pages of 5 / 10 / 15 horses (the choice is remembered on this device)
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem("horsesPageSize"));
+      return [5, 10, 15].includes(v) ? v : 5;
+    } catch {
+      return 5;
+    }
+  });
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(horses.length / pageSize));
+  const safePage = Math.min(page, pages - 1);
+  const shown = horses.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const changePageSize = (n: number) => {
+    setPageSize(n);
+    setPage(0);
+    try {
+      localStorage.setItem("horsesPageSize", String(n));
+    } catch {
+      /* private window */
+    }
+  };
+  const openHorse = (id: string) => {
+    onSelectHorse(id);
+    // phones: jump to the profile under the list
+    window.setTimeout(() => document.getElementById("horse-profile")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
   const removedList = can.manageHorses ? <RemovedHorses can={can} onChanged={onChanged} refreshKey={horses.length} /> : null;
 
   if (horses.length === 0) {
     return (
       <div className="p-3 sm:p-6">
         <div className="flex min-h-[480px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
-          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-600 text-3xl sm:text-4xl">🐎</div>
+          <LogoMark className="mb-5 h-24 w-24" />
           <h1 className="text-3xl sm:text-4xl font-semibold text-gray-900">No horses registered</h1>
           <p className="mt-3 max-w-xl text-xl text-gray-600">
             {onRegister
@@ -113,14 +142,14 @@ export function Horses({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {horses.map((horse) => {
+        {shown.map((horse) => {
           const status = getStatus(horse.currentTemperature, settings);
 
           return (
             <button
               key={horse.id}
               type="button"
-              onClick={() => onSelectHorse(horse.id)}
+              onClick={() => openHorse(horse.id)}
               className={`${status.panel} overflow-hidden rounded-2xl border-4 text-left transition-transform hover:scale-[1.02] ${
                 selectedHorseId === horse.id ? "ring-4 ring-blue-500" : ""
               }`}
@@ -129,7 +158,7 @@ export function Horses({
                 <HorsePhoto src={horse.photo} name={horse.name} />
                 <div className="min-w-0 space-y-2 p-3 sm:p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="truncate text-2xl sm:text-3xl">🐎 {horse.name}</h2>
+                    <h2 className="truncate text-2xl sm:text-3xl">{horse.name}</h2>
                     <Activity className={`${status.text} h-8 w-8 shrink-0`} />
                   </div>
                   <div className={`${status.text} text-3xl sm:text-4xl tabular-nums`}>
@@ -155,8 +184,17 @@ export function Horses({
         })}
       </div>
 
+      <Pager
+        total={horses.length}
+        page={safePage}
+        pages={pages}
+        pageSize={pageSize}
+        onPage={setPage}
+        onPageSize={changePageSize}
+      />
+
       {currentHorse && (
-        <div className="rounded-2xl border-2 border-gray-200 bg-white p-5 sm:p-8">
+        <div id="horse-profile" className="scroll-mt-20 rounded-2xl border-2 border-gray-200 bg-white p-5 sm:p-8">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-3xl">Profile: {currentHorse.name}</h2>
             {can.manageHorses && <HorseActions key={currentHorse.id} horse={currentHorse} onChanged={onChanged} />}
@@ -437,11 +475,11 @@ function RemovedHorses({
   );
 }
 
-/** Horse photo, falling back to 🐎 when there is no photo or it fails to load. */
+/** Horse photo, falling back to the logo when there is no photo or it fails to load. */
 function HorsePhoto({ src, name }: { src: string; name: string }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
-    return <div className="flex h-full min-h-48 w-full items-center justify-center bg-white/60 text-5xl sm:text-6xl">🐎</div>;
+    return <NoPhoto className="h-full min-h-48 w-full bg-white/60" />;
   }
   return <img src={src} alt={name} onError={() => setFailed(true)} className="h-full min-h-48 w-full object-cover" />;
 }
@@ -453,6 +491,96 @@ function ProfileReadings({ horseId }: { horseId: string }) {
     <div className="mt-8">
       <h3 className="mb-3 text-2xl">Recent readings</h3>
       <RecentReadingsTable rows={rows} loading={loading} />
+    </div>
+  );
+}
+
+/** "Show 5 / 10 / 15 per page" + page buttons under the horse list */
+function Pager({
+  total,
+  page,
+  pages,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number;
+  page: number;
+  pages: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+  onPageSize: (n: number) => void;
+}) {
+  const from = total === 0 ? 0 : page * pageSize + 1;
+  const to = Math.min(total, (page + 1) * pageSize);
+  // page numbers around the current one (1 … 4 5 6 … 12)
+  const nums: (number | "…")[] = [];
+  for (let i = 0; i < pages; i++) {
+    if (i === 0 || i === pages - 1 || Math.abs(i - page) <= 1) nums.push(i);
+    else if (nums[nums.length - 1] !== "…") nums.push("…");
+  }
+  const btn = "flex min-h-11 min-w-11 items-center justify-center rounded-lg border-2 px-3 text-lg";
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border-2 border-gray-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+      <div className="flex flex-wrap items-center gap-3 text-lg text-gray-700">
+        <span>
+          {from}–{to} of {total} horse{total === 1 ? "" : "s"}
+        </span>
+        <label className="flex items-center gap-2">
+          Show
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSize(Number(e.target.value))}
+            className="min-h-11 rounded-lg border-2 border-gray-300 bg-white px-3 text-lg"
+          >
+            {[5, 10, 15].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          per page
+        </label>
+      </div>
+      {pages > 1 && (
+        <nav className="flex flex-wrap items-center gap-1.5" aria-label="Horse list pages">
+          <button
+            type="button"
+            disabled={page === 0}
+            onClick={() => onPage(page - 1)}
+            className={`${btn} border-gray-300 bg-white text-gray-800 disabled:opacity-40`}
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          {nums.map((n, i) =>
+            n === "…" ? (
+              <span key={`gap${i}`} className="px-1 text-lg text-gray-500">
+                …
+              </span>
+            ) : (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onPage(n)}
+                aria-current={n === page ? "page" : undefined}
+                className={`${btn} ${n === page ? "border-green-600 bg-green-600 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"}`}
+              >
+                {n + 1}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            disabled={page >= pages - 1}
+            onClick={() => onPage(page + 1)}
+            className={`${btn} border-gray-300 bg-white text-gray-800 disabled:opacity-40`}
+            aria-label="Next page"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LogoMark } from './Brand';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, CloudSun, Download, Droplets } from 'lucide-react';
 import type { HorseRecord } from '../App';
@@ -64,7 +65,7 @@ export function History({ horse, horses, onSelectHorse, settings }: HistoryProps
       <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
         <HorsePicker horse={horse} horses={horses} onSelectHorse={onSelectHorse} />
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-green-300 bg-green-50 px-6 text-center">
-          <div className="mb-5 text-7xl">🐎</div>
+          <LogoMark className="mb-5 h-24 w-24 opacity-40" />
           <h1 className="text-3xl sm:text-4xl">No temperature history</h1>
           <p className="mt-3 text-xl text-gray-600">
             {horse

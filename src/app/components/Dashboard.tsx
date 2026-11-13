@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { NoPhoto } from './Brand';
 import { AlertTriangle, Camera, Droplets, QrCode, ScanFace, ScanSearch, Thermometer } from 'lucide-react';
 import { classify, timeAgo, type DeviceStatus, type LiveHorse, type Settings } from '../lib/api';
 import type { HorseRecord } from '../App';
@@ -305,7 +306,7 @@ function MiniProfile({ rec, name, code }: { rec: HorseRecord | null; name: strin
         {rec?.photo ? (
           <img src={rec.photo} alt={`Photo of ${name}`} draggable={false} className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-3xl sm:text-4xl">🐎</div>
+          <NoPhoto className="h-full w-full" />
         )}
       </div>
       <div className="min-w-0">

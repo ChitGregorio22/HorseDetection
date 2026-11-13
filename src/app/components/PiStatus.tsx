@@ -32,7 +32,7 @@ export function useDeviceStatus(enabled: boolean) {
 }
 
 /** Small pill for the header: "Raspberry Pi · Online" */
-export function PiStatusBadge({ devices, onClick }: { devices: DeviceStatus[] | null | undefined; onClick: () => void }) {
+export function PiStatusBadge({ devices, onClick }: { devices: DeviceStatus[] | null | undefined; onClick?: () => void }) {
   let dot = 'bg-gray-300';
   let text = 'Checking…';
 
@@ -58,8 +58,11 @@ export function PiStatusBadge({ devices, onClick }: { devices: DeviceStatus[] | 
     <button
       type="button"
       onClick={onClick}
-      title="Raspberry Pi connection — click for details"
-      className="inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-green-700/60 px-3 py-1 text-sm hover:bg-green-800 sm:px-4 sm:py-1.5 sm:text-base"
+      disabled={!onClick}
+      title={onClick ? "Raspberry Pi connection — click for details" : "Raspberry Pi connection"}
+      className={`inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-green-700/60 px-3 py-1 text-sm sm:px-4 sm:py-1.5 sm:text-base ${
+        onClick ? "hover:bg-green-800" : "cursor-default"
+      }`}
     >
       <span className={`h-3 w-3 rounded-full ${dot}`} />
       <Cpu className="h-4 w-4" />

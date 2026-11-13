@@ -1,6 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Briefcase, HeartPulse, LogIn, Stethoscope, UserPlus } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { LogoMark } from "./Brand";
+import headerPhoto from "../../assets/horse-header.jpg";
+import headerPhotoSmall from "../../assets/horse-header-sm.jpg";
 
 type SignupRole = "owner" | "caretaker" | "veterinarian";
 
@@ -46,10 +49,23 @@ export function Login() {
     "min-h-14 w-full rounded-xl border-2 border-gray-300 bg-white px-4 py-3 text-xl outline-none focus:border-green-600 focus:ring-4 focus:ring-green-100";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
-        <div className="bg-green-600 px-6 py-6 text-white">
-          <h1 className="text-3xl">🐎 Horse Thermal Monitor</h1>
+    <div className="relative flex min-h-screen items-center justify-center bg-green-900 p-4">
+      <img
+        src={headerPhotoSmall}
+        srcSet={`${headerPhotoSmall} 900w, ${headerPhoto} 1600w`}
+        sizes="100vw"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-[center_62%]"
+      />
+      <div className="pointer-events-none absolute inset-0 bg-green-950/55" />
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border-2 border-gray-200 bg-white shadow-2xl">
+        <div className="flex flex-col items-center bg-green-700 px-6 py-6 text-center text-white">
+          <div className="mb-3 rounded-2xl bg-white p-1.5 shadow-md">
+            <LogoMark className="h-24 w-24" />
+          </div>
+          <h1 className="text-3xl">Horse Thermal Monitor</h1>
           <p className="mt-1 text-lg">{mode === "signin" ? "Sign in to continue" : "Create an account"}</p>
         </div>
 

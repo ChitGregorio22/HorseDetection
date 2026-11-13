@@ -11,6 +11,9 @@ import { Login } from "./components/Login";
 import { PiStatusBadge, useDeviceStatus } from "./components/PiStatus";
 import { Users as UsersView } from "./components/Users";
 import { FeverAlarm } from "./components/FeverAlarm";
+import { LogoMark } from "./components/Brand";
+import headerPhoto from "../assets/horse-header.jpg";
+import headerPhotoSmall from "../assets/horse-header-sm.jpg";
 import { useLiveView } from "./components/useLiveView";
 import { permissionsFor, ROLE_LABELS } from "./lib/permissions";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
@@ -154,7 +157,8 @@ export default function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4 sm:p-6">
         <div className="max-w-xl rounded-2xl border-2 border-yellow-500 bg-yellow-50 p-5 sm:p-8">
-          <h1 className="text-3xl">🐎 Database not connected yet</h1>
+          <LogoMark className="mx-auto mb-4 h-20 w-20" />
+          <h1 className="text-3xl">Database not connected yet</h1>
           <p className="mt-4 text-xl text-gray-700">
             Add <code className="font-mono">VITE_SUPABASE_URL</code> and{" "}
             <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> in Vercel → Settings → Environment Variables,
@@ -230,18 +234,34 @@ export default function App() {
       />
 
       {/* Header */}
-      <header className="border-b-4 border-green-700 bg-green-600 px-4 py-3 text-white sm:px-6 sm:py-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl leading-tight sm:text-3xl lg:text-4xl">🐎 Horse Thermal Monitor</h1>
-            <p className="mt-1 hidden text-xl sm:block">Real-Time Temperature Monitoring System</p>
-            <div className="mt-2 sm:mt-3">
-              <PiStatusBadge devices={deviceStatus.devices} onClick={() => setCurrentView("settings")} />
+      <header className="relative overflow-hidden border-b-4 border-green-700 bg-green-800 px-4 py-3 text-white sm:px-6 sm:py-6">
+        {/* the farm's horses behind the header, darkened on the left so the text stays readable */}
+        <img
+          src={headerPhoto}
+          srcSet={`${headerPhotoSmall} 900w, ${headerPhoto} 1600w`}
+          sizes="100vw"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-[center_62%]"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-green-950/90 via-green-900/65 to-green-900/25" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <div className="shrink-0 rounded-xl bg-white p-1 shadow-md sm:rounded-2xl sm:p-1.5">
+              <LogoMark className="h-12 w-12 sm:h-20 sm:w-20 lg:h-24 lg:w-24" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl leading-tight drop-shadow sm:text-3xl lg:text-4xl">Horse Thermal Monitor</h1>
+              <p className="mt-1 hidden text-xl drop-shadow sm:block">Real-Time Temperature Monitoring System</p>
+              <div className="mt-2 sm:mt-3">
+                <PiStatusBadge devices={deviceStatus.devices} onClick={can.manageSettings ? () => setCurrentView("settings") : undefined} />
+              </div>
             </div>
           </div>
           <div className="flex shrink-0 items-center text-right">
             <div className="min-w-0">
-              <div className="max-w-[9rem] truncate text-sm sm:max-w-[16rem] sm:text-lg">
+              <div className="max-w-[9rem] truncate text-sm drop-shadow sm:max-w-[16rem] sm:text-lg">
                 {profile?.full_name || session.user.email}
               </div>
               <div className="text-xs opacity-90 sm:text-base">{profile ? ROLE_LABELS[profile.role] : ""}</div>

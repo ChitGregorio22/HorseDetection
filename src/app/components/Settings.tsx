@@ -116,7 +116,10 @@ export function Settings({ profile, can, settings, onSettingsSaved, onHorseAdded
     <div className="space-y-4 p-3 sm:space-y-6 sm:p-6">
       <h1 className="text-3xl sm:text-4xl mb-4">Settings</h1>
 
-      <PiStatusPanel devices={deviceStatus.devices} error={deviceStatus.error} onRefresh={deviceStatus.refresh} />
+      {/* Raspberry Pi details (sensors, IP, program): owners and admins only */}
+      {isAdmin && (
+        <PiStatusPanel devices={deviceStatus.devices} error={deviceStatus.error} onRefresh={deviceStatus.refresh} />
+      )}
 
       {!isAdmin && (
         <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 text-lg text-blue-900">

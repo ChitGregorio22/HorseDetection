@@ -736,7 +736,9 @@ export async function getLatestPiReading(): Promise<PiReading | null> {
 export interface HorsePhoto {
   id: number;
   thumb: string | null;
-  source: "registration" | "website" | "pi_key";
+  /** registration / website (stall camera on request) / pi_key (p key) = from the Pi;
+   *  upload / device = added on the website (max 3 per horse) */
+  source: "registration" | "website" | "pi_key" | "upload" | "device";
   view: string | null;
   width: number | null;
   height: number | null;
@@ -812,4 +814,42 @@ export async function getPhotoRequest(id: number): Promise<PhotoRequest | null> 
 
 export async function cancelPhotoRequest(id: number) {
   await supabase.from("photo_requests").update({ status: "cancelled" }).eq("id", id).in("status", ["pending", "running"]);
+}
+
+// ---------- Photos added on the website (supabase/11_photo_uploads.sql) ----------
+export const MAX_WEBSITE_PHOTOS = 3;
+
+/** Owner/admin adds a photo (uploaded file or this device's camera). Max 3 per horse. */
+export async function addHorsePhoto(
+  horseId: string,
+  photo: { image: string; thumb: string; width: number; height: number },
+  source: "upload" | "device",
+  makeProfile: boolean,
+): Promise<number> {
+  const { data, error } = await supabase.rpc("add_horse_photo", {
+    p_horse_id: horseId,
+    p_image: photo.image,
+    p_thumb: photo.thumb,
+    p_source: source,
+    p_width: photo.width,
+    p_height: photo.height,
+    p_make_profile: makeProfile,
+  });
+  if (error) {
+    if (/add_horse_photo|schema cache|does not exist/i.test(error.message)) {
+      throw new Error("Adding photos on the website needs the database update 11_photo_uploads.sql.");
+    }
+    throw new Error(friendlyError(error.message));
+  }
+  return Number((data as { photo_id: number }).photo_id);
+}
+
+export async function deleteHorsePhoto(photoId: number) {
+  const { error } = await supabase.rpc("delete_horse_photo", { p_photo_id: photoId });
+  if (error) {
+    if (/delete_horse_photo|schema cache|does not exist/i.test(error.message)) {
+      throw new Error("Deleting photos needs the database update 11_photo_uploads.sql.");
+    }
+    throw new Error(friendlyError(error.message));
+  }
 }
