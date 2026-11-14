@@ -314,13 +314,7 @@ function HorseBlock({
       )}
 
       {h.body != null ? (
-        <>
-          <BigTemp temp={h.body} level={levelOf(h.body)} />
-          <div className="mt-1 text-base text-gray-500">
-            Body temperature (estimated){h.surface != null ? ` · surface ${h.surface.toFixed(1)}°C` : ''}
-            {h.at && h.status === 'identified' ? ` · ${timeAgo(h.at)}` : ''}
-          </div>
-        </>
+        <BigTemp temp={h.body} level={levelOf(h.body)} />
       ) : h.status !== 'identifying' ? (
         <p className="mt-2 text-base text-gray-600">No temperature: outside the thermal camera's view.</p>
       ) : null}
