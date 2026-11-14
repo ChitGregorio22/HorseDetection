@@ -221,16 +221,22 @@ class WebLink:
                          "name": "Jafar", "horse_code": "HTM-92578BC8",
                          "method": "qr",            # or "fingerprint"
                          "confidence": 0.84,        # fingerprint similarity (None for QR)
+                         "progress": {"photos": 3, "photos_needed": 8, "checks": 1, "checks_needed": 3},
+                                                    # only while "identifying"
+                         "qr_check": "match",       # only when identified: match / mismatch /
+                                                    # unregistered plate / fallback / None
                          "body_temp": 37.8, "surface_temp": 33.1}],
              "qr": ["HTM-92578BC8"],                # QR plates read in this frame (optional)
              "air_temp": 26.4, "humidity": 78.0,    # DHT22 (None if no reading)
              "mode": "recognise"}                   # or "registering" (+ "registering": "Name")
-        A change in who / how / present is sent within ~0.5 s; otherwise the latest state every 2 s."""
+        A change in who / how / present / progress step / QR check is sent within ~0.4 s (never more often,
+        LIVE_MIN_GAP); otherwise the latest state every 2 s."""
         st = dict(state)
         st.setdefault("time", time.strftime("%Y-%m-%dT%H:%M:%S%z"))
         horses = st.get("horses") or []
         key = (bool(st.get("present")), st.get("mode"), tuple(sorted(st.get("qr") or [])),
-               tuple((h.get("status"), h.get("name"), h.get("method")) for h in horses))
+               tuple((h.get("status"), h.get("name"), h.get("method"),
+                      json.dumps(h.get("progress"), sort_keys=True), h.get("qr_check")) for h in horses))
         with self.lock:
             self.live_latest = st
             changed = key != self._live_key

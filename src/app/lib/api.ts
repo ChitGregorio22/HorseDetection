@@ -636,6 +636,17 @@ export interface LiveHorse {
   surface_temp: number | null;
   /** how the Pi named it: fingerprint or the stall's QR plate */
   method: IdMethod | null;
+  /** while identifying: photos collected / needed, then checks done / needed (missing = the Pi is unsure) */
+  progress: LiveProgress | null;
+  /** when identified: does the stall's QR plate agree? */
+  qr_check: "match" | "mismatch" | "unregistered plate" | "fallback" | null;
+}
+
+export interface LiveProgress {
+  photos: number;
+  photos_needed: number;
+  checks: number;
+  checks_needed: number;
 }
 
 export interface LiveView {
@@ -666,6 +677,14 @@ export async function getLiveView(): Promise<LiveView | null | undefined> {
   return row ? toLiveView(row.device_id, row.state, row.updated_at) : null;
 }
 
+function toProgress(p: unknown): LiveProgress | null {
+  if (!p || typeof p !== "object") return null;
+  const o = p as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : Number(v) || 0);
+  const r = { photos: n(o.photos), photos_needed: n(o.photos_needed), checks: n(o.checks), checks_needed: n(o.checks_needed) };
+  return r.photos_needed > 0 || r.checks_needed > 0 ? r : null;
+}
+
 export function toLiveView(deviceId: string, state: Record<string, unknown>, updatedAt: string): LiveView {
   const horses = Array.isArray(state.horses) ? (state.horses as Record<string, unknown>[]) : [];
   return {
@@ -686,6 +705,10 @@ export function toLiveView(deviceId: string, state: Record<string, unknown>, upd
       body_temp: num(h.body_temp),
       surface_temp: num(h.surface_temp),
       method: h.method === "qr" || h.method === "fingerprint" ? (h.method as IdMethod) : null,
+      progress: toProgress(h.progress),
+      qr_check: ["match", "mismatch", "unregistered plate", "fallback"].includes(String(h.qr_check))
+        ? (h.qr_check as LiveHorse["qr_check"])
+        : null,
     })),
   };
 }

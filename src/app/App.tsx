@@ -312,7 +312,20 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto">
         {view === "dashboard" && (
-          <Dashboard horses={horses} settings={settings} devices={deviceStatus.devices} live={live} />
+          <Dashboard
+            horses={horses}
+            settings={settings}
+            devices={deviceStatus.devices}
+            live={live}
+            onOpenHorse={(id) => {
+              setSelectedHorseId(id);
+              setCurrentView("horses");
+              window.setTimeout(
+                () => document.getElementById("horse-profile")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                400,
+              );
+            }}
+          />
         )}
         {view === "history" && (
           <HistoryView horse={selectedHorse} horses={horses} onSelectHorse={setSelectedHorseId} settings={settings} />
